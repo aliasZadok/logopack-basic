@@ -1,91 +1,80 @@
-import Image from 'next/image'
-import { Inter } from '@next/font/google'
-import styles from './page.module.css'
+'use client';
 
-const inter = Inter({ subsets: ['latin'] })
+import React, { useState } from 'react';
+import SvgUploader from '../components/SvgUploader';
+import SvgVariants from '../components/SvgVariants';
+import FormatSelector from '../components/FormatSelector';
 
 export default function Home() {
-  return (
-    <main className={styles.main}>
-      <div className={styles.description}>
-        <p>
-          Get started by editing&nbsp;
-          <code className={styles.code}>app/page.tsx</code>
-        </p>
-        <div>
-          <a
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{' '}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className={styles.vercelLogo}
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+    const [originalSvg, setOriginalSvg] = useState<string | null>(null);
+    const [initialPrimaryColor, setInitialPrimaryColor] = useState<string>('#000000');
+    const [initialSecondaryColor, setInitialSecondaryColor] = useState<string>('#FFFFFF');
+    const [newPrimaryColor, setNewPrimaryColor] = useState<string>('#000000');
+    const [newSecondaryColor, setNewSecondaryColor] = useState<string>('#FFFFFF');
+    const [paddingX, setPaddingX] = useState<number>(0);
+    const [paddingY, setPaddingY] = useState<number>(0);
+    const [sizes, setSizes] = useState<{ type: string; value: number }[]>([]);
+    const [fileName, setFileName] = useState<string>('');
+    const [processedFullColorSvg, setProcessedFullColorSvg] = useState<string>('');
+    const [processedWhiteSvg, setProcessedWhiteSvg] = useState<string>('');
+    const [processedBlackSvg, setProcessedBlackSvg] = useState<string>('');
+
+    const handleUpload = (svgContent: string, primary: string, secondary: string, uploadedFileName: string) => {
+        setOriginalSvg(svgContent);
+        setInitialPrimaryColor(primary);
+        setInitialSecondaryColor(secondary);
+        setNewPrimaryColor(primary);
+        setNewSecondaryColor(secondary);
+        setFileName(uploadedFileName);
+    };
+
+    const handlePaddingChange = (x: number, y: number) => {
+        setPaddingX(x);
+        setPaddingY(y);
+    };
+
+    const handleSizeChange = (newSizes: { type: string; value: number }[]) => {
+        setSizes(newSizes);
+    };
+
+    const handleProcessedSvgUpdate = (fullColorSvg: string, whiteSvg: string, blackSvg: string) => {
+        setProcessedFullColorSvg(fullColorSvg);
+        setProcessedWhiteSvg(whiteSvg);
+        setProcessedBlackSvg(blackSvg);
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '50px 0', backgroundColor: '#fff', minHeight: '100vh' }}>
+            <img src="/app_logo.svg" alt="Web App Logo" style={{ marginBottom: '50px', width: '300px', height: 'auto' }} />
+            <h1 style={{ marginBottom: '20px', color: '#333', fontSize: '80px', width: '600px', textAlign: 'center' }}>GENERATE LOGO FILES IN SECONDS.</h1>
+            <SvgUploader onUpload={handleUpload} />
+            {originalSvg && (
+                <>
+                    <SvgVariants
+                        originalSvg={originalSvg}
+                        paddingX={paddingX}
+                        paddingY={paddingY}
+                        sizes={sizes}
+                        initialPrimaryColor={initialPrimaryColor}
+                        initialSecondaryColor={initialSecondaryColor}
+                        newPrimaryColor={newPrimaryColor}
+                        newSecondaryColor={newSecondaryColor}
+                        onProcessedSvgUpdate={handleProcessedSvgUpdate}
+                    />
+                    <FormatSelector
+                        originalSvg={processedFullColorSvg}
+                        blackSvg={processedBlackSvg}
+                        whiteSvg={processedWhiteSvg}
+                        primaryColor={newPrimaryColor}
+                        secondaryColor={newSecondaryColor}
+                        onPaddingChange={handlePaddingChange}
+                        onSizeChange={handleSizeChange}
+                        fileName={fileName}
+                        setPrimaryColor={setNewPrimaryColor}
+                        setSecondaryColor={setNewSecondaryColor}
+                    />
+                </>
+            )}
         </div>
-      </div>
-
-      <div className={styles.center}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-        <div className={styles.thirteen}>
-          <Image src="/thirteen.svg" alt="13" width={40} height={31} priority />
-        </div>
-      </div>
-
-      <div className={styles.grid}>
-        <a
-          href="https://beta.nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={inter.className}>
-            Docs <span>-&gt;</span>
-          </h2>
-          <p className={inter.className}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={inter.className}>
-            Templates <span>-&gt;</span>
-          </h2>
-          <p className={inter.className}>Explore the Next.js 13 playground.</p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={inter.className}>
-            Deploy <span>-&gt;</span>
-          </h2>
-          <p className={inter.className}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
-    </main>
-  )
+    );
 }

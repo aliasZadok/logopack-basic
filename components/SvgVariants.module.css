@@ -1,0 +1,63 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-top: 20px;
+}
+
+.variantRow {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.variant {
+    border: 1px solid #000;
+    padding: 10px;
+    margin: 10px;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.variant h3 {
+    color: black;
+    margin-bottom: 10px;
+}
+
+.svgWrapper {
+    display: flex;
+    padding: 10px;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.svgWrapper svg {
+    width: 100%;
+    height: 100%;
+}
+
+.whiteContainer {
+    background-color: #000;
+}
+
+.whiteContainer h3 {
+    color: white;
+}
+
+.whiteContainer div {
+    background-color: black;
+}

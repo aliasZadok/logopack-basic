@@ -1,0 +1,271 @@
+.formatSelector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 20px;
+    padding: 20px;
+    width: 80%;
+    max-width: 900px;
+}
+
+.fileNameInput {
+    margin-bottom: 20px;
+    padding: 10px;
+    font-size: 16px;
+    width: 80%;
+    max-width: 500px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    text-align: center;
+    background-color: #ffffff;
+    color: #333333;
+}
+
+.mainContainer {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.firstColumn {
+    display: flex;
+    flex-direction: column;
+    width: 60%;
+}
+
+.secondColumn {
+    display: flex;
+    flex-direction: column;
+    width: 35%;
+}
+
+.row {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.rowNoMargin {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 0;
+}
+
+.formatGroup, .colorGroup, .marginSizesContainer {
+    display: flex;
+    flex-direction: column;
+}
+
+.colorRow {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.colorPickerContainer {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.cmykPrimaryContainer, .cmykSecondaryContainer {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.hexInput, .cmykInput, .numberInput {
+    margin-left: 10px;
+    padding: 5px;
+    width: 50px;
+    text-align: center;
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    color: #333333;
+}
+
+.hexInput {
+    width: 64px;
+}
+
+.checkboxWrapper {
+    position: relative;
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+}
+
+.checkboxWrapper input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.checkboxWrapper span {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 22px;
+    width: 22px;
+    background-color: #ffffff;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+.checkboxWrapper input:checked + span {
+    background-color: #2196F3;
+}
+
+.checkboxWrapper span:after {
+    content: "";
+    position: absolute;
+    display: none;
+}
+
+.checkboxWrapper input:checked + span:after {
+    display: block;
+}
+
+.checkboxWrapper span:after {
+    content: '\2713';
+    font-size: 16px;
+    position: absolute;
+    top: 0px;
+    left: 3px;
+    color: #fff;
+}
+
+.sliderContainer {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.sizeInputGroup {
+    display: flex;
+    align-items: center;
+}
+
+.sizeTagsContainer {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.sizeTag {
+    display: flex;
+    align-items: center;
+    background-color: #f0f0f0;
+    padding: 5px 10px;
+    border-radius: 5px;
+    margin-right: 10px;
+    margin-bottom: 10px;
+    color: #333333;
+}
+
+.downloadButton {
+    background-color: #ff0000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 20px;
+}
+
+.downloadButton:hover {
+    background-color: #cc0000;
+}
+
+.label {
+    color: #333333;
+    margin-left: 5px;
+}
+
+.heading {
+    color: #333333;
+}
+
+.addButton {
+    background-color: #ff0000;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-left: 10px;
+}
+
+.removeButton {
+    background-color: transparent;
+    color: #ff0000;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.colorSquare {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.colorSquarePrimary {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.colorSquareSecondary {
+    width: 30px;
+    height: 30px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+.popover {
+    position: absolute;
+    z-index: 2;
+}
+
+.cover {
+    position: fixed;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    left: 0px;
+}
+
+.slider {
+    accent-color: red;
+}
+
+.filesRow {
+    display: flex;
+    margin-bottom: 20px;
+}
+
+.printFilesColumn {
+    display: flex;
+    flex-direction: column;
+    margin-left: 96px;
+}
+
+.colorCMYK {
+    margin-left: 60px;
+}
+
+.cmykPrimaryContainer .cmykInputGroup,
+.cmykSecondaryContainer .cmykInputGroup {
+    display: flex;
+    align-items: center;
+}
