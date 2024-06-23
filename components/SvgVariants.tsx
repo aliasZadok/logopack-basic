@@ -10,15 +10,29 @@ interface SvgVariantsProps {
     originalSvg: string;
     paddingX: number;
     paddingY: number;
-    sizes: { type: string; value: number }[];
+    sizes: { type: string; value: number | { width: number, height: number } }[];
     initialPrimaryColor: string;
     initialSecondaryColor: string;
     newPrimaryColor: string;
     newSecondaryColor: string;
     onProcessedSvgUpdate: (fullColorSvg: string, whiteSvg: string, blackSvg: string) => void;
+    onSizeVariantUpdate: (sizeVariants: { [key: string]: string }) => void;
+    createCmykVariant: (svg: string, primaryCmyk: { c: number, m: number, y: number, k: number }, secondaryCmyk: { c: number, m: number, y: number, k: number }) => string;
 }
 
-const SvgVariants: React.FC<SvgVariantsProps> = ({ originalSvg, paddingX, paddingY, sizes, initialPrimaryColor, initialSecondaryColor, newPrimaryColor, newSecondaryColor, onProcessedSvgUpdate }) => {
+const SvgVariants: React.FC<SvgVariantsProps> = ({
+    originalSvg,
+    paddingX,
+    paddingY,
+    sizes,
+    initialPrimaryColor,
+    initialSecondaryColor,
+    newPrimaryColor,
+    newSecondaryColor,
+    onProcessedSvgUpdate,
+    onSizeVariantUpdate,
+    createCmykVariant
+}) => {
     const [processedOriginalSvg, setProcessedOriginalSvg] = useState('');
     const [processedWhiteSvg, setProcessedWhiteSvg] = useState('');
     const [processedBlackSvg, setProcessedBlackSvg] = useState('');
@@ -119,20 +133,54 @@ const SvgVariants: React.FC<SvgVariantsProps> = ({ originalSvg, paddingX, paddin
         return new XMLSerializer().serializeToString(doc);
     };
 
-    const applySizeChanges = (svg: string): string => {
+    const applySizeChanges = (svg: string, width?: number, height?: number): string => {
         const parser = new DOMParser();
         const doc = parser.parseFromString(svg, 'image/svg+xml');
         const svgElement = doc.documentElement;
 
-        sizes.forEach(size => {
-            if (size.type === 'Width') {
-                svgElement.setAttribute('width', size.value.toString());
-            } else if (size.type === 'Height') {
-                svgElement.setAttribute('height', size.value.toString());
-            }
-        });
+        if (width) {
+            svgElement.setAttribute('width', width.toString());
+        }
+        if (height) {
+            svgElement.setAttribute('height', height.toString());
+        }
 
         return new XMLSerializer().serializeToString(doc);
+    };
+
+    const createSizeVariant = (svg: string, size: { type: string; value: number | { width: number; height: number } }, variant: string): { filename: string, modifiedSvg: string } => {
+        let modifiedSvg = svg;
+
+        if (size.type === 'Width' && typeof size.value === 'number') {
+            modifiedSvg = applySizeChanges(modifiedSvg, size.value);
+        } else if (size.type === 'Height' && typeof size.value === 'number') {
+            modifiedSvg = applySizeChanges(modifiedSvg, undefined, size.value);
+        } else if (size.type === 'Dimensions' && typeof size.value === 'object') {
+            modifiedSvg = applySizeChanges(modifiedSvg, size.value.width, size.value.height);
+        }
+
+        const filename = `${variant}_${
+            size.type === 'Dimensions'
+                ? `${(size.value as { width: number; height: number }).width}×${(size.value as { width: number; height: number }).height}`
+                : `${size.value}_${size.type === 'Width' ? 'w' : 'h'}`
+        }`;
+
+        return { filename, modifiedSvg };
+    };
+
+    const generateSizeVariants = () => {
+        const variants = ['original', 'white', 'black'];
+        const sizeVariants: { [key: string]: string } = {};
+
+        variants.forEach((variant) => {
+            sizes.forEach((size) => {
+                const variantSvg = variant === 'original' ? processedOriginalSvg : variant === 'white' ? processedWhiteSvg : processedBlackSvg;
+                const { filename, modifiedSvg } = createSizeVariant(variantSvg, size, variant);
+                sizeVariants[filename] = modifiedSvg;
+            });
+        });
+
+        onSizeVariantUpdate(sizeVariants);
     };
 
     useEffect(() => {
@@ -155,14 +203,18 @@ const SvgVariants: React.FC<SvgVariantsProps> = ({ originalSvg, paddingX, paddin
     }, [originalSvg]);
 
     useEffect(() => {
-        const modifiedOriginalSvg = applyViewBoxChanges(applySizeChanges(updatePrimarySecondaryColors(originalSvg, newPrimaryColor, newSecondaryColor)));
-        const modifiedWhiteSvg = applyViewBoxChanges(applySizeChanges(processSvgColors(removeStyleTag(originalSvg), 'white')));
-        const modifiedBlackSvg = applyViewBoxChanges(applySizeChanges(processSvgColors(removeStyleTag(originalSvg), 'black')));
+        const modifiedOriginalSvg = applyViewBoxChanges(updatePrimarySecondaryColors(originalSvg, newPrimaryColor, newSecondaryColor));
+        const modifiedWhiteSvg = applyViewBoxChanges(processSvgColors(removeStyleTag(originalSvg), 'white'));
+        const modifiedBlackSvg = applyViewBoxChanges(processSvgColors(removeStyleTag(originalSvg), 'black'));
         setProcessedOriginalSvg(modifiedOriginalSvg);
         setProcessedWhiteSvg(modifiedWhiteSvg);
         setProcessedBlackSvg(modifiedBlackSvg);
         onProcessedSvgUpdate(modifiedOriginalSvg, modifiedWhiteSvg, modifiedBlackSvg);
-    }, [originalSvg, paddingX, paddingY, sizes, newPrimaryColor, newSecondaryColor]);
+    }, [originalSvg, paddingX, paddingY, newPrimaryColor, newSecondaryColor]);
+
+    useEffect(() => {
+        generateSizeVariants();
+    }, [processedOriginalSvg, processedWhiteSvg, processedBlackSvg, sizes]);
 
     return (
         <div className={styles.container}>

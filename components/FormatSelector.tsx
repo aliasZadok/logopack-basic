@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { FormControl, InputGroup, Button, Form } from 'react-bootstrap';
+import React, { useState, useEffect, useRef } from 'react';
+import { FormControl, InputGroup, Button } from 'react-bootstrap';
 import { ChromePicker } from 'react-color';
 import styles from './FormatSelector.module.css';
+import CustomDropdown from './CustomDropdown';
+import { EditableInput } from 'react-color/lib/components/common';
 
 import { colord, extend } from 'colord';
 import cmykPlugin from 'colord/plugins/cmyk';
@@ -22,7 +24,7 @@ interface FormatSelectorProps {
     primaryColor: string;
     secondaryColor: string;
     onPaddingChange: (x: number, y: number) => void;
-    onSizeChange: (sizes: { type: string; value: number }[]) => void;
+    onSizeChange: (sizes: { type: string; value: number | { width: number; height: number } }[]) => void;
     setPrimaryColor: React.Dispatch<React.SetStateAction<string>>;
     setSecondaryColor: React.Dispatch<React.SetStateAction<string>>;
     fileName: string;
@@ -46,8 +48,10 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     const [paddingX, setPaddingX] = useState<number>(0);
     const [paddingY, setPaddingY] = useState<number>(0);
     const [sizeType, setSizeType] = useState<string>('Width');
-    const [sizeValue, setSizeValue] = useState<number>(0);
-    const [sizes, setSizes] = useState<{ type: string; value: number }[]>([]);
+    const [sizeValue, setSizeValue] = useState<number | { width: number; height: number }>(0);
+    const [sizes, setSizes] = useState<{ type: string; value: number | { width: number; height: number } }[]>([]);
+    const [customSize, setCustomSize] = useState<number>(0);
+    const customSizeRef = useRef<HTMLInputElement>(null);
     const [colors, setColors] = useState<{ [key: string]: string | number }>({
         rgbPrimary: primaryColor,
         rgbSecondary: secondaryColor,
@@ -128,8 +132,15 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const handleAddSize = () => {
-        if (sizeValue > 0) {
+        if (typeof sizeValue === 'number' && sizeValue > 0) {
             const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
+            console.log('Adding size:', { type: sizeType, value: sizeValue });
+            setSizes(newSizes);
+            onSizeChange(newSizes);
+            setSizeValue(0);
+        } else if (typeof sizeValue === 'object' && sizeValue.width > 0 && sizeValue.height > 0) {
+            const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
+            console.log('Adding size:', { type: sizeType, value: sizeValue });
             setSizes(newSizes);
             onSizeChange(newSizes);
             setSizeValue(0);
@@ -142,6 +153,19 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
         onSizeChange(newSizes);
     };
 
+    const handleSizeTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        setSizeType(e.target.value);
+        setSizeValue(e.target.value === 'Dimensions' ? { width: 0, height: 0 } : 0);
+    };
+
+    const handleDimensionChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'width' | 'height') => {
+        if (typeof sizeValue === 'object') {
+            setSizeValue({ ...sizeValue, [type]: Number(e.target.value) });
+        } else {
+            setSizeValue({ width: 0, height: 0, [type]: Number(e.target.value) });
+        }
+    };
+
     const uploadAndDownload = async () => {
         const formData = new FormData();
         const blob = new Blob([originalSvg], { type: 'image/svg+xml' });
@@ -152,8 +176,10 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
             fullColor: originalSvg,
             black: blackSvg,
             white: whiteSvg,
+            sizes: sizes // Include sizes
         };
 
+        // Append SVGs to FormData
         formData.append('file', blob, 'logo.svg');
         formData.append('formats', selectedFormats.join(','));
         formData.append('colors', selectedColors.join(','));
@@ -183,6 +209,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     const handleRgbColorChange = (colorValue: any, picker: string) => {
         const color = colord(colorValue.hex);
         const { c, m, y, k } = color.toCmyk();
+        console.log(`Changing ${picker} to:`, color.toHex(), `CMYK: ${c * 100}%, ${m * 100}%, ${y * 100}%, ${k * 100}%`);
         setColors((prev) => ({
             ...prev,
             [picker]: color.toHex(),
@@ -222,6 +249,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                 (element as HTMLElement).style.backgroundColor = color.toRgbString();
             }
 
+            console.log(`Changing ${picker} to:`, roundedValue, `New RGB: ${rgbHex}`);
             return updatedColors;
         });
     };
@@ -231,6 +259,38 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
             ...prev,
             [picker]: !prev[picker],
         }));
+    };
+
+    const handleEditableInputChange = (hex: string, picker: string) => {
+        const color = colord(hex);
+        const { c, m, y, k } = color.toCmyk();
+        console.log(`Changing ${picker} to:`, hex, `CMYK: ${c * 100}%, ${m * 100}%, ${y * 100}%, ${k * 100}%`);
+        setColors((prev) => ({
+            ...prev,
+            [picker]: hex,
+            [`${picker}C`]: Math.round(c * 100),
+            [`${picker}M`]: Math.round(m * 100),
+            [`${picker}Y`]: Math.round(y * 100),
+            [`${picker}K`]: Math.round(k * 100)
+        }));
+        if (picker === 'rgbPrimary') {
+            setPrimaryColor(hex);
+        } else if (picker === 'rgbSecondary') {
+            setSecondaryColor(hex);
+        }
+    };
+
+    const inputStyles = {
+        input: {
+            border: '1px solid #ccc',
+            borderRadius: '5px',
+            padding: '5px',
+            width: '80px',
+            marginRight: '10px',
+        },
+        label: {
+            display: 'none',
+        },
     };
 
     return (
@@ -246,7 +306,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                 <div className={styles.firstColumn}>
                     <div className={styles.filesRow}>
                         <div className={styles.formatGroup}>
-                            <h3 className={styles.heading}>Web Files</h3>
+                            <h3 className={styles.heading}>Digital Files</h3>
                             <label className={styles.label}>
                                 <div className={styles.checkboxWrapper}>
                                     <input
@@ -349,11 +409,11 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                         />
                                     </div>
                                 ) : null}
-                                <input
-                                    type="text"
+                                <EditableInput
+                                    style={inputStyles}
+                                    label="hex"
                                     value={colors.rgbPrimary as string}
-                                    onChange={(e) => handleRgbColorChange({ hex: e.target.value }, 'rgbPrimary')}
-                                    className={styles.hexInput}
+                                    onChange={(e) => handleEditableInputChange(e.hex, 'rgbPrimary')}
                                 />
                             </div>
                             <div className={styles.colorPickerContainer}>
@@ -371,11 +431,11 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                         />
                                     </div>
                                 ) : null}
-                                <input
-                                    type="text"
+                                <EditableInput
+                                    style={inputStyles}
+                                    label="hex"
                                     value={colors.rgbSecondary as string}
-                                    onChange={(e) => handleRgbColorChange({ hex: e.target.value }, 'rgbSecondary')}
-                                    className={styles.hexInput}
+                                    onChange={(e) => handleEditableInputChange(e.hex, 'rgbSecondary')}
                                 />
                             </div>
                         </div>
@@ -407,25 +467,25 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                     type="number"
                                     value={colors.cmykPrimaryC as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryC')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykPrimaryM as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryM')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykPrimaryY as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryY')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykPrimaryK as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryK')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                             </div>
                             <div className={styles.cmykSecondaryContainer}>
@@ -444,25 +504,25 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                     type="number"
                                     value={colors.cmykSecondaryC as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryC')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykSecondaryM as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryM')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykSecondaryY as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryY')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                                 <input
                                     type="number"
                                     value={colors.cmykSecondaryK as number}
                                     onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryK')}
-                                    className={styles.cmykInput}
+                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
                                 />
                             </div>
                         </div>
@@ -522,17 +582,34 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                     </div>
                     <h3 className={styles.heading}>Sizes</h3>
                     <InputGroup className={styles.sizeInputGroup}>
-                        <FormControl as="select" value={sizeType} onChange={(e) => setSizeType(e.target.value)} style={{ backgroundColor: "#fff", color: "#000", borderRadius: "5px" }}>
+                        <FormControl as="select" value={sizeType} onChange={(e: any) => handleSizeTypeChange(e)} style={{ backgroundColor: "#fff", color: "#000", borderRadius: "5px", border: "1px solid #ccc"}}>
                             <option value="Width">Width</option>
                             <option value="Height">Height</option>
+                            <option value="Dimensions">Dimensions</option>
                         </FormControl>
-                        <FormControl
-                            type="number"
-                            min="0"
-                            value={sizeValue}
-                            onChange={(e) => setSizeValue(Number(e.target.value))}
-                            className={styles.numberInput}
-                        />
+                        {sizeType === 'Dimensions' ? (
+                            <>
+                                <FormControl
+                                    type="number"
+                                    min="0"
+                                    value={typeof sizeValue === 'object' ? sizeValue.width : 0}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleDimensionChange(e, 'width')}
+                                    className={`${styles.numberInput} ${styles.noSpinner}`}
+                                    placeholder="Width"
+                                />
+                                <span>x</span>
+                                <FormControl
+                                    type="number"
+                                    min="0"
+                                    value={typeof sizeValue === 'object' ? sizeValue.height : 0}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleDimensionChange(e, 'height')}
+                                    className={`${styles.numberInput} ${styles.noSpinner}`}
+                                    placeholder="Height"
+                                />
+                            </>
+                        ) : (
+                            <CustomDropdown onSizeChange={setSizeValue} />
+                        )}
                         <Button className={styles.addButton} onClick={handleAddSize}>
                             + Add
                         </Button>
@@ -540,7 +617,9 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                     <div className={styles.sizeTagsContainer}>
                         {sizes.map((size, index) => (
                             <span key={index} className={styles.sizeTag}>
-                                {`${size.type} ${size.value}`}
+                                {size.type === 'Dimensions'
+                                    ? `${(size.value as { width: number; height: number }).width} x ${(size.value as { width: number; height: number }).height}`
+                                    : `${size.type} ${size.value}`}
                                 <Button
                                     className={styles.removeButton}
                                     size="sm"

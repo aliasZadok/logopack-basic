@@ -14,6 +14,7 @@
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "bootstrap": "^5.3.3",
+    "bootstrap-icons": "^1.11.3",
     "canvg": "^4.0.2",
     "colord": "^2.9.3",
     "eslint": "8.57.0",

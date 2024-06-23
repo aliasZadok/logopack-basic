@@ -7,6 +7,10 @@ import path from 'path';
 import fs from 'fs';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
+import { colord, extend } from 'colord';
+import cmykPlugin from 'colord/plugins/cmyk';
+
+extend([cmykPlugin]);
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -14,12 +18,39 @@ const router = createRouter();
 
 router.use(upload.single('file'));
 
+const addIccColorToSvg = (svgContent, rgbPrimary, rgbSecondary) => {
+    const primaryCmyk = colord(rgbPrimary).toCmyk();
+    const secondaryCmyk = colord(rgbSecondary).toCmyk();
+
+    const cmykToString = (cmyk) => `icc-color(#CMYK, ${cmyk.c * 100}%, ${cmyk.m * 100}%, ${cmyk.y * 100}%, ${cmyk.k * 100}%)`;
+
+    return svgContent
+        .replace(new RegExp(`fill="${rgbPrimary}"`, 'g'), `fill="${rgbPrimary} ${cmykToString(primaryCmyk)}"`)
+        .replace(new RegExp(`fill="${rgbSecondary}"`, 'g'), `fill="${rgbSecondary} ${cmykToString(secondaryCmyk)}"`);
+};
+
+const addSizeAttributesToSvg = (svgContent, width, height) => {
+    let modifiedSvg = svgContent;
+
+    if (width) {
+        modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 width="${width}">`);
+    }
+    if (height) {
+        modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 height="${height}">`);
+    }
+
+    return modifiedSvg;
+};
+
 router.post(async (req, res) => {
     const file = req.file;
     const formats = req.body.formats.split(',');
     const colors = req.body.colors.split(',');
     const fileName = req.body.fileName || 'logopack';
     const svgVariants = JSON.parse(req.body.svgVariants);
+    const sizes = svgVariants.sizes || [];
+    const primaryColor = req.body.primaryColor || '#000000';
+    const secondaryColor = req.body.secondaryColor || '#FFFFFF';
 
     const zip = new JSZip();
     const svgPath = path.join(process.cwd(), file.path);
@@ -35,9 +66,10 @@ router.post(async (req, res) => {
             .toFile(outputPath);
     };
 
-    const convertSvgToJpg = async (inputPath, outputPath, isBlackSvg = false) => {
+    const convertSvgToJpg = async (inputPath, outputPath, variantName) => {
+        const isWhiteVariant = variantName.includes('White');
         const pipeline = sharp(inputPath)
-            .flatten({ background: isBlackSvg ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 } })
+            .flatten({ background: isWhiteVariant ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } })
             .jpeg();
         await pipeline.toFile(outputPath);
     };
@@ -71,9 +103,10 @@ router.post(async (req, res) => {
         exec(`pstoedit -f ps2ai ${inputPath} ${outputPath}`, callback);
     };
 
-    const processVariants = async (variantName, svgContent, colorDir, isBlackSvg = false) => {
+    const processVariants = async (variantName, svgContent, colorDir, width, height) => {
+        const modifiedSvgContent = addSizeAttributesToSvg(svgContent, width, height);
         const tempSvgPath = path.join(outputDir, `${variantName}.svg`);
-        fs.writeFileSync(tempSvgPath, svgContent);
+        fs.writeFileSync(tempSvgPath, modifiedSvgContent);
 
         for (const format of formats) {
             const outputPath = path.join(outputDir, `${variantName}.${format}`);
@@ -82,7 +115,7 @@ router.post(async (req, res) => {
                 if (format === 'png') {
                     await convertSvgToPng(tempSvgPath, outputPath);
                 } else if (format === 'jpg') {
-                    await convertSvgToJpg(tempSvgPath, outputPath, isBlackSvg);
+                    await convertSvgToJpg(tempSvgPath, outputPath, variantName);
                 } else if (format === 'webp') {
                     await convertSvgToWebp(tempSvgPath, outputPath);
                 } else if (format === 'pdf') {
@@ -114,6 +147,7 @@ router.post(async (req, res) => {
                 const fileBuffer = fs.readFileSync(outputPath);
                 colorDir.file(`${variantName}.${format}`, fileBuffer);
 
+                console.log(`Processed variant: ${variantName}, format: ${format}`);
                 fs.unlinkSync(outputPath);
             } catch (error) {
                 console.error(`Error converting ${variantName} to ${format}:`, error);
@@ -123,30 +157,70 @@ router.post(async (req, res) => {
         fs.unlinkSync(tempSvgPath);
     };
 
-    const fullColorSvg = svgVariants.fullColor;
-    const whiteSvg = svgVariants.white;
-    const blackSvg = svgVariants.black;
+    const fullColorSvg = addIccColorToSvg(svgVariants.fullColor, primaryColor, secondaryColor);
+    const whiteSvg = addIccColorToSvg(svgVariants.white, primaryColor, secondaryColor);
+    const blackSvg = addIccColorToSvg(svgVariants.black, primaryColor, secondaryColor);
 
     const mainFolder = zip.folder(fileName);
-    const digitalFolder = mainFolder.folder('horizontal_logo').folder('01_digital');
-    const printFolder = colors.includes('cmyk') ? mainFolder.folder('horizontal_logo').folder('02_print') : null;
+    const digitalFolder = mainFolder.folder('01_Digital');
+    const printFolder = colors.includes('cmyk') ? mainFolder.folder('02_Print') : null;
 
-    const digitalFullColorFolder = digitalFolder.folder('01_full_color');
-    const digitalWhiteFolder = digitalFolder.folder('02_white_logo');
-    const digitalBlackFolder = digitalFolder.folder('03_black_logo');
+    const digitalFullColorFolder = digitalFolder.folder('01_Full_Color');
+    const digitalWhiteFolder = digitalFolder.folder('02_White');
+    const digitalBlackFolder = digitalFolder.folder('03_Black');
 
-    await processVariants(`${fileName}_full_color_logo`, fullColorSvg, digitalFullColorFolder);
-    await processVariants(`${fileName}_white_logo`, whiteSvg, digitalWhiteFolder);
-    await processVariants(`${fileName}_black_logo`, blackSvg, digitalBlackFolder, true);
+    console.log('Processing RGB variants...');
+    await processVariants(`${fileName}_RGB_Full_Color`, fullColorSvg, digitalFullColorFolder);
+    await processVariants(`${fileName}_RGB_White`, whiteSvg, digitalWhiteFolder);
+    await processVariants(`${fileName}_RGB_Black`, blackSvg, digitalBlackFolder);
+
+    if (sizes.length > 0) {
+        for (const size of sizes) {
+            if (size.type === 'Width') {
+                await processVariants(`${fileName}_RGB_${size.value}W_Full_Color`, fullColorSvg, digitalFullColorFolder, size.value, null);
+                await processVariants(`${fileName}_RGB_${size.value}W_White`, whiteSvg, digitalWhiteFolder, size.value, null);
+                await processVariants(`${fileName}_RGB_${size.value}W_Black`, blackSvg, digitalBlackFolder, size.value, null);
+            } else if (size.type === 'Height') {
+                await processVariants(`${fileName}_RGB_${size.value}H_Full_Color`, fullColorSvg, digitalFullColorFolder, null, size.value);
+                await processVariants(`${fileName}_RGB_${size.value}H_White`, whiteSvg, digitalWhiteFolder, null, size.value);
+                await processVariants(`${fileName}_RGB_${size.value}H_Black`, blackSvg, digitalBlackFolder, null, size.value);
+            } else if (size.type === 'Dimensions') {
+                const { width, height } = size.value;
+                await processVariants(`${fileName}_RGB_${width}x${height}_Full_Color`, fullColorSvg, digitalFullColorFolder, width, height);
+                await processVariants(`${fileName}_RGB_${width}x${height}_White`, whiteSvg, digitalWhiteFolder, width, height);
+                await processVariants(`${fileName}_RGB_${width}x${height}_Black`, blackSvg, digitalBlackFolder, width, height);
+            }
+        }
+    }
 
     if (printFolder) {
-        const printFullColorFolder = printFolder.folder('01_full_color');
-        const printWhiteFolder = printFolder.folder('02_white_logo');
-        const printBlackFolder = printFolder.folder('03_black_logo');
+        const printFullColorFolder = printFolder.folder('01_Full_Color');
+        const printWhiteFolder = printFolder.folder('02_White');
+        const printBlackFolder = printFolder.folder('03_Black');
 
-        await processVariants(`${fileName}_full_color_logo`, fullColorSvg, printFullColorFolder, false);
-        await processVariants(`${fileName}_white_logo`, whiteSvg, printWhiteFolder, false);
-        await processVariants(`${fileName}_black_logo`, blackSvg, printBlackFolder, true);
+        console.log('Processing CMYK variants...');
+        await processVariants(`${fileName}_CMYK_Full_Color`, fullColorSvg, printFullColorFolder, false);
+        await processVariants(`${fileName}_CMYK_White`, whiteSvg, printWhiteFolder, false);
+        await processVariants(`${fileName}_CMYK_Black`, blackSvg, printBlackFolder, true);
+
+        if (sizes.length > 0) {
+            for (const size of sizes) {
+                if (size.type === 'Width') {
+                    await processVariants(`${fileName}_CMYK_${size.value}W_Full_Color`, fullColorSvg, printFullColorFolder, size.value, null);
+                    await processVariants(`${fileName}_CMYK_${size.value}W_White`, whiteSvg, printWhiteFolder, size.value, null);
+                    await processVariants(`${fileName}_CMYK_${size.value}W_Black`, blackSvg, printBlackFolder, size.value, null);
+                } else if (size.type === 'Height') {
+                    await processVariants(`${fileName}_CMYK_${size.value}H_Full_Color`, fullColorSvg, printFullColorFolder, null, size.value);
+                    await processVariants(`${fileName}_CMYK_${size.value}H_White`, whiteSvg, printWhiteFolder, null, size.value);
+                    await processVariants(`${fileName}_CMYK_${size.value}H_Black`, blackSvg, printBlackFolder, null, size.value);
+                } else if (size.type === 'Dimensions') {
+                    const { width, height } = size.value;
+                    await processVariants(`${fileName}_CMYK_${width}x${height}_Full_Color`, fullColorSvg, printFullColorFolder, width, height);
+                    await processVariants(`${fileName}_CMYK_${width}x${height}_White`, whiteSvg, printWhiteFolder, width, height);
+                    await processVariants(`${fileName}_CMYK_${width}x${height}_Black`, blackSvg, printBlackFolder, width, height);
+                }
+            }
+        }
     }
 
     fs.unlinkSync(svgPath);
