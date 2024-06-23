@@ -12,6 +12,7 @@ body, p, button {
 /* Apply Champion-HTF-Lightweight to headers */
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Champion-HTF-Lightweight';
+    font-weight: normal;
 }
 
 :root {
