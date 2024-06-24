@@ -28,6 +28,7 @@ interface FormatSelectorProps {
     setPrimaryColor: React.Dispatch<React.SetStateAction<string>>;
     setSecondaryColor: React.Dispatch<React.SetStateAction<string>>;
     fileName: string;
+    selectedVariants: string[];
 }
 
 const FormatSelector: React.FC<FormatSelectorProps> = ({
@@ -40,11 +41,12 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     onSizeChange,
     setPrimaryColor,
     setSecondaryColor,
-    fileName
+    fileName,
+    selectedVariants
 }) => {
-    const [selectedFormats, setSelectedFormats] = useState<string[]>([]);
+    const [selectedFormats, setSelectedFormats] = useState<string[]>(['png', 'rgb']);
     const [selectedColors, setSelectedColors] = useState<string[]>(['rgb']);
-    const [currentFileName, setCurrentFileName] = useState<string>(fileName);
+    const [currentFileName, setCurrentFileName] = useState<string>(fileName.replace(/\.[^/.]+$/, "")); // Remove extension
     const [paddingX, setPaddingX] = useState<number>(0);
     const [paddingY, setPaddingY] = useState<number>(0);
     const [sizeType, setSizeType] = useState<string>('Width');
@@ -70,6 +72,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
         cmykPrimary: false,
         cmykSecondary: false,
     });
+    const [showVariantDialog, setShowVariantDialog] = useState<boolean>(false);
 
     useEffect(() => {
         const script = document.createElement('script');
@@ -108,7 +111,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     }, [secondaryColor]);
 
     useEffect(() => {
-        setCurrentFileName(fileName);
+        setCurrentFileName(fileName.replace(/\.[^/.]+$/, ""));
     }, [fileName]);
 
     const handleFormatChange = (format: string) => {
@@ -128,19 +131,17 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const handleFileNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setCurrentFileName(event.target.value);
+        setCurrentFileName(event.target.value.replace(/\.[^/.]+$/, "")); // Remove extension
     };
 
     const handleAddSize = () => {
         if (typeof sizeValue === 'number' && sizeValue > 0) {
             const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
-            console.log('Adding size:', { type: sizeType, value: sizeValue });
             setSizes(newSizes);
             onSizeChange(newSizes);
             setSizeValue(0);
         } else if (typeof sizeValue === 'object' && sizeValue.width > 0 && sizeValue.height > 0) {
             const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
-            console.log('Adding size:', { type: sizeType, value: sizeValue });
             setSizes(newSizes);
             onSizeChange(newSizes);
             setSizeValue(0);
@@ -167,6 +168,16 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const uploadAndDownload = async () => {
+        if (selectedFormats.length === 0) {
+            alert('Please select at least one file format for download.');
+            return;
+        }
+
+        if (selectedVariants.length === 0) {
+            setShowVariantDialog(true);
+            return;
+        }
+
         const formData = new FormData();
         const blob = new Blob([originalSvg], { type: 'image/svg+xml' });
         const blackBlob = new Blob([blackSvg], { type: 'image/svg+xml' });
@@ -176,15 +187,15 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
             fullColor: originalSvg,
             black: blackSvg,
             white: whiteSvg,
-            sizes: sizes // Include sizes
+            sizes: sizes
         };
 
-        // Append SVGs to FormData
         formData.append('file', blob, 'logo.svg');
         formData.append('formats', selectedFormats.join(','));
         formData.append('colors', selectedColors.join(','));
         formData.append('fileName', currentFileName);
         formData.append('svgVariants', JSON.stringify(svgVariants));
+        formData.append('selectedVariants', JSON.stringify(selectedVariants));
 
         const response = await fetch('/api/upload', {
             method: 'POST',
@@ -209,7 +220,6 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     const handleRgbColorChange = (colorValue: any, picker: string) => {
         const color = colord(colorValue.hex);
         const { c, m, y, k } = color.toCmyk();
-        console.log(`Changing ${picker} to:`, color.toHex(), `CMYK: ${c * 100}%, ${m * 100}%, ${y * 100}%, ${k * 100}%`);
         setColors((prev) => ({
             ...prev,
             [picker]: color.toHex(),
@@ -249,7 +259,6 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                 (element as HTMLElement).style.backgroundColor = color.toRgbString();
             }
 
-            console.log(`Changing ${picker} to:`, roundedValue, `New RGB: ${rgbHex}`);
             return updatedColors;
         });
     };
@@ -264,7 +273,6 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     const handleEditableInputChange = (hex: string, picker: string) => {
         const color = colord(hex);
         const { c, m, y, k } = color.toCmyk();
-        console.log(`Changing ${picker} to:`, hex, `CMYK: ${c * 100}%, ${m * 100}%, ${y * 100}%, ${k * 100}%`);
         setColors((prev) => ({
             ...prev,
             [picker]: hex,
@@ -323,6 +331,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                     <input
                                         type="checkbox"
                                         value="png"
+                                        checked={selectedFormats.includes('png')}
                                         onChange={() => handleFormatChange('png')}
                                     />
                                     <span></span>
@@ -388,6 +397,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                     <input
                                         type="checkbox"
                                         value="rgb"
+                                        checked={selectedColors.includes('rgb')}
                                         onChange={() => handleColorChange('rgb')}
                                     />
                                     <span></span>
@@ -582,7 +592,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                     </div>
                     <h3 className={styles.heading}>Sizes</h3>
                     <InputGroup className={styles.sizeInputGroup}>
-                        <FormControl as="select" value={sizeType} onChange={(e: any) => handleSizeTypeChange(e)} style={{ backgroundColor: "#fff", color: "#000", borderRadius: "5px", border: "1px solid #ccc"}}>
+                        <FormControl as="select" value={sizeType} onChange={(e: any) => handleSizeTypeChange(e)} style={{ backgroundColor: "#fff", color: "#000", borderRadius: "5px", border: "1px solid #ccc", padding: "4px"}}>
                             <option value="Width">Width</option>
                             <option value="Height">Height</option>
                             <option value="Dimensions">Dimensions</option>
@@ -633,6 +643,14 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                 </div>
             </div>
             <button className={styles.downloadButton} onClick={uploadAndDownload}>DOWNLOAD LOGO PACK</button>
+
+            <dialog className={styles.variantDialog} open={showVariantDialog}>
+                <div>
+                    <h3>Select Variants</h3>
+                    <p>Please select at least one variant for download.</p>
+                    <Button className={styles.closeDialog} onClick={() => setShowVariantDialog(false)}>Close</Button>
+                </div>
+            </dialog>
         </div>
     );
 };

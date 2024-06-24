@@ -24,6 +24,7 @@ export default function Home() {
     const [processedWhiteSvg, setProcessedWhiteSvg] = useState<string>('');
     const [processedBlackSvg, setProcessedBlackSvg] = useState<string>('');
     const [sizeVariants, setSizeVariants] = useState<{ [key: string]: string }>({});
+    const [selectedVariants, setSelectedVariants] = useState<string[]>(['fullColor', 'white', 'black']);
 
     const handleUpload = (svgContent: string, primary: string, secondary: string, uploadedFileName: string) => {
         setOriginalSvg(svgContent);
@@ -81,7 +82,7 @@ export default function Home() {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '50px 0', backgroundColor: '#fff', minHeight: '100vh' }}>
             <img src="/app_logo.svg" alt="Web App Logo" style={{ marginBottom: '50px', width: '300px', height: 'auto' }} />
-            <h1 style={{ marginBottom: '20px', color: '#000', fontSize: '80px', width: '600px', textAlign: 'center' }}>GENERATE LOGO FILES IN SECONDS.</h1>
+            <h1 style={{ marginBottom: '20px', color: '#000', fontSize: '60px', lineHeight: '0.9', width: '500px', textAlign: 'center' }}>GENERATE LOGO FILES <br />IN SECONDS.</h1>
             <SvgUploader onUpload={handleUpload} />
             {originalSvg && (
                 <>
@@ -97,6 +98,7 @@ export default function Home() {
                         onProcessedSvgUpdate={handleProcessedSvgUpdate}
                         onSizeVariantUpdate={handleSizeVariantUpdate}
                         createCmykVariant={createCmykVariant}
+                        onVariantSelect={setSelectedVariants}
                     />
                     <FormatSelector
                         originalSvg={processedFullColorSvg}
@@ -109,6 +111,7 @@ export default function Home() {
                         fileName={fileName}
                         setPrimaryColor={setNewPrimaryColor}
                         setSecondaryColor={setNewSecondaryColor}
+                        selectedVariants={selectedVariants}
                     />
                 </>
             )}

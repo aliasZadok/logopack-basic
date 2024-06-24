@@ -28,6 +28,7 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    cursor: pointer; /* Add cursor pointer */
 }
 
 .variant h3 {
@@ -60,4 +61,8 @@
 
 .whiteContainer div {
     background-color: black;
+}
+
+.selected {
+    border: 2px solid red; /* Add red border when selected */
 }
