@@ -23,12 +23,6 @@
     box-sizing: border-box;
 }
 
-.uploadIcon {
-    margin-bottom: 10px;
-    max-width: 50px; /* Adjust as needed */
-    height: auto;
-}
-
 .dropzone p {
     margin: 0;
     font-size: 16px;

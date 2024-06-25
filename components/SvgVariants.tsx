@@ -41,7 +41,7 @@ const SvgVariants: React.FC<SvgVariantsProps> = ({
   const [processedWhiteSvg, setProcessedWhiteSvg] = useState('');
   const [processedBlackSvg, setProcessedBlackSvg] = useState('');
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
-  const [selectedVariants, setSelectedVariants] = useState<string[]>(['fullColor', 'white', 'black']);
+  const [selectedVariants, setSelectedVariants] = useState<string[]>(['fullColor']); // Default to fullColor only
   const [showVariantDialog, setShowVariantDialog] = useState(false);
 
   const convertToHex = (color: string): string => {

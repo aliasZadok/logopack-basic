@@ -4,8 +4,6 @@
     align-items: center;
     margin-top: 20px;
     padding: 20px;
-    width: 80%;
-    max-width: 900px;
 }
 
 .fileNameInput {
@@ -25,55 +23,59 @@
     display: flex;
     justify-content: space-between;
     width: 100%;
+    flex-wrap: wrap;
 }
 
-.firstColumn {
-    display: flex;
-    flex-direction: column;
-    width: 60%;
-}
-
+.firstColumn,
 .secondColumn {
     display: flex;
     flex-direction: column;
-    width: 40%;
+    width: 100%;
+    margin-bottom: 20px;
 }
 
-.row {
+@media (min-width: 768px) {
+    .firstColumn {
+        width: 60%;
+        margin-bottom: 0;
+    }
+
+    .secondColumn {
+        width: 35%;
+        margin-bottom: 0;
+    }
+}
+
+.row,
+.rowNoMargin {
     display: flex;
+    flex-wrap: wrap;
     margin-bottom: 20px;
 }
 
 .rowNoMargin {
-    display: flex;
-    justify-content: space-between;
     margin-bottom: 0;
 }
 
-.formatGroup, .colorGroup, .marginSizesContainer {
+.formatGroup,
+.colorGroup,
+.marginSizesContainer {
     display: flex;
     flex-direction: column;
 }
 
-.colorRow {
+.colorRow,
+.colorPickerContainer,
+.cmykPrimaryContainer,
+.cmykSecondaryContainer {
     display: flex;
     align-items: center;
     margin-bottom: 10px;
 }
 
-.colorPickerContainer {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.cmykPrimaryContainer, .cmykSecondaryContainer {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.hexInput, .cmykInput, .numberInput {
+.hexInput,
+.cmykInput,
+.numberInput {
     margin-left: 5px;
     padding: 5px;
     width: 50px;
@@ -151,6 +153,7 @@
 .sizeInputGroup {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .sizeTagsContainer {
@@ -214,22 +217,8 @@
     font-size: 14px;
 }
 
-.colorSquare {
-    width: 30px;
-    height: 30px;
-    border: 1px solid #ccc;
-    cursor: pointer;
-    margin-right: 10px;
-}
-
-.colorSquarePrimary {
-    width: 30px;
-    height: 30px;
-    border: 1px solid #ccc;
-    cursor: pointer;
-    margin-right: 10px;
-}
-
+.colorSquare,
+.colorSquarePrimary,
 .colorSquareSecondary {
     width: 30px;
     height: 30px;
@@ -257,17 +246,32 @@
 
 .filesRow {
     display: flex;
+    flex-wrap: wrap;
     margin-bottom: 20px;
 }
 
 .printFilesColumn {
     display: flex;
     flex-direction: column;
-    margin-left: 96px;
+    margin-left: 20px;
+}
+
+@media (min-width: 768px) {
+    .printFilesColumn {
+        margin-left: 96px;
+        margin-top: 0;
+    }
 }
 
 .colorCMYK {
-    margin-left: 60px;
+    margin-left: 20px;
+}
+
+@media (min-width: 768px) {
+    .colorCMYK {
+        margin-left: 60px;
+        margin-top: 0;
+    }
 }
 
 .cmykPrimaryContainer .cmykInputGroup,

@@ -31,6 +31,19 @@ interface FormatSelectorProps {
     selectedVariants: string[];
 }
 
+interface SvgVariants {
+    fullColor: string;
+    black: string;
+    white: string;
+    sizes: {
+        type: string;
+        value: number | {
+            width: number;
+            height: number;
+        };
+    }[];
+}
+
 const FormatSelector: React.FC<FormatSelectorProps> = ({
     originalSvg,
     blackSvg,
@@ -44,7 +57,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     fileName,
     selectedVariants
 }) => {
-    const [selectedFormats, setSelectedFormats] = useState<string[]>(['png', 'rgb']);
+    const [selectedFormats, setSelectedFormats] = useState<string[]>(['png']);
     const [selectedColors, setSelectedColors] = useState<string[]>(['rgb']);
     const [currentFileName, setCurrentFileName] = useState<string>(fileName.replace(/\.[^/.]+$/, "")); // Remove extension
     const [paddingX, setPaddingX] = useState<number>(0);
@@ -114,6 +127,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
         setCurrentFileName(fileName.replace(/\.[^/.]+$/, ""));
     }, [fileName]);
 
+
     const handleFormatChange = (format: string) => {
         setSelectedFormats((prev) =>
             prev.includes(format)
@@ -168,54 +182,83 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const uploadAndDownload = async () => {
+
         if (selectedFormats.length === 0) {
             alert('Please select at least one file format for download.');
             return;
         }
-
+    
         if (selectedVariants.length === 0) {
             setShowVariantDialog(true);
             return;
         }
-
+    
         const formData = new FormData();
         const blob = new Blob([originalSvg], { type: 'image/svg+xml' });
         const blackBlob = new Blob([blackSvg], { type: 'image/svg+xml' });
         const whiteBlob = new Blob([whiteSvg], { type: 'image/svg+xml' });
-
-        const svgVariants = {
+    
+        const svgVariants: SvgVariants = {
             fullColor: originalSvg,
             black: blackSvg,
             white: whiteSvg,
             sizes: sizes
         };
-
+    
         formData.append('file', blob, 'logo.svg');
         formData.append('formats', selectedFormats.join(','));
         formData.append('colors', selectedColors.join(','));
         formData.append('fileName', currentFileName);
         formData.append('svgVariants', JSON.stringify(svgVariants));
         formData.append('selectedVariants', JSON.stringify(selectedVariants));
-
-        const response = await fetch('/api/upload', {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            console.error('Failed to upload and process files');
-            return;
+    
+        // Check if it's a single format and single variant
+        if (selectedFormats.length === 1 && selectedVariants.length === 1) {
+            formData.append('format', selectedFormats[0]);
+            formData.append('color', selectedColors[0]);
+            formData.append('svgVariant', JSON.stringify(svgVariants[selectedVariants[0] as keyof SvgVariants]));
+            formData.append('size', JSON.stringify(sizes[0] || {}));
+    
+            const response = await fetch('/api/singleFileDownload', {
+                method: 'POST',
+                body: formData,
+            });
+    
+            if (!response.ok) {
+                console.error('Failed to upload and process files');
+                return;
+            }
+    
+            const fileBlob = await response.blob();
+            const url = window.URL.createObjectURL(fileBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFileName}.${selectedFormats[0]}`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } else {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData,
+            });
+    
+            if (!response.ok) {
+                console.error('Failed to upload and process files');
+                return;
+            }
+    
+            const zipBlob = await response.blob();
+            const url = window.URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFileName}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
         }
-
-        const zipBlob = await response.blob();
-        const url = window.URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${currentFileName}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
     };
+    
 
     const handleRgbColorChange = (colorValue: any, picker: string) => {
         const color = colord(colorValue.hex);
@@ -455,6 +498,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                     <input
                                         type="checkbox"
                                         value="cmyk"
+                                        checked={selectedColors.includes('cmyk')}
                                         onChange={() => handleColorChange('cmyk')}
                                     />
                                     <span></span>
@@ -462,17 +506,10 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                 CMYK
                             </label>
                             <div className={styles.cmykPrimaryContainer}>
-                                <div
-                                    className={`${styles.colorSquarePrimary}`}
-                                    data-w3-color={`cmyk(${colors.cmykPrimaryC}%,${colors.cmykPrimaryM}%,${colors.cmykPrimaryY}%,${colors.cmykPrimaryK}%)`}
-                                    onClick={() => handleColorSquareClick('cmykPrimary')}
+                                 <div
+                                    className={styles.colorSquare}
+                                    style={{ backgroundColor: colors.rgbPrimary as string }}
                                 />
-                                {displayColorPicker.cmykPrimary && (
-                                    <div className={styles.popover}>
-                                        <div className={styles.cover} onClick={() => handleColorSquareClick('cmykPrimary')} />
-                                        {/* CMYK color picker not provided as w3color library handles CMYK visualization */}
-                                    </div>
-                                )}
                                 <input
                                     type="number"
                                     value={colors.cmykPrimaryC as number}
@@ -500,16 +537,9 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                             </div>
                             <div className={styles.cmykSecondaryContainer}>
                                 <div
-                                    className={`${styles.colorSquareSecondary}`}
-                                    data-w3-color={`cmyk(${colors.cmykSecondaryC}%,${colors.cmykSecondaryM}%,${colors.cmykSecondaryY}%,${colors.cmykSecondaryK}%)`}
-                                    onClick={() => handleColorSquareClick('cmykSecondary')}
+                                    className={styles.colorSquare}
+                                    style={{ backgroundColor: colors.rgbSecondary as string }}
                                 />
-                                {displayColorPicker.cmykSecondary && (
-                                    <div className={styles.popover}>
-                                        <div className={styles.cover} onClick={() => handleColorSquareClick('cmykSecondary')} />
-                                        {/* CMYK color picker not provided as w3color library handles CMYK visualization */}
-                                    </div>
-                                )}
                                 <input
                                     type="number"
                                     value={colors.cmykSecondaryC as number}

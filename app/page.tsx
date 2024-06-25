@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SvgUploader from '../components/SvgUploader';
 import SvgVariants from '../components/SvgVariants';
 import FormatSelector from '../components/FormatSelector';
+import { Container, Row, Col } from 'react-bootstrap';
 import { colord, extend } from 'colord';
 import namesPlugin from 'colord/plugins/names';
 import cmykPlugin from 'colord/plugins/cmyk';
+import Image from 'next/image'
 
 extend([namesPlugin, cmykPlugin]);
 
@@ -25,6 +27,11 @@ export default function Home() {
     const [processedBlackSvg, setProcessedBlackSvg] = useState<string>('');
     const [sizeVariants, setSizeVariants] = useState<{ [key: string]: string }>({});
     const [selectedVariants, setSelectedVariants] = useState<string[]>(['fullColor', 'white', 'black']);
+    const [isClient, setIsClient] = useState<boolean>(false);
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
     const handleUpload = (svgContent: string, primary: string, secondary: string, uploadedFileName: string) => {
         setOriginalSvg(svgContent);
@@ -79,13 +86,29 @@ export default function Home() {
         return colordColor.isValid() ? colordColor.toHex() : color;
     };
 
+    if (!isClient) {
+        return null;
+    }
+
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '50px 0', backgroundColor: '#fff', minHeight: '100vh' }}>
-            <img src="/app_logo.svg" alt="Web App Logo" style={{ marginBottom: '50px', width: '300px', height: 'auto' }} />
-            <h1 style={{ marginBottom: '20px', color: '#000', fontSize: '60px', lineHeight: '0.9', width: '500px', textAlign: 'center' }}>GENERATE LOGO FILES <br />IN SECONDS.</h1>
-            <SvgUploader onUpload={handleUpload} />
+        <Container fluid style={{ padding: '50px 0', backgroundColor: '#fff', minHeight: '100vh' }}>
+            <Row className="justify-content-center">
+                <Col xs={12} md={6} lg={4} style={{display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '64px'}}>
+                    <Image src="/app_logo.svg" alt="Web App Logo" width={300} height={55} />
+                </Col>
+            </Row>
+            <Row className="justify-content-center">
+                <Col xs={12} md={10} lg={8}>
+                    <h1 className="mb-4" style={{ color: '#000', fontSize: '5em', lineHeight: '0.9', textAlign: 'center' }}>GENERATE LOGO FILES <br />IN SECONDS.</h1>
+                </Col>
+            </Row>
+            <Row className="justify-content-center">
+                <Col xs={12} md={10} lg={8}>
+                    <SvgUploader onUpload={handleUpload} />
+                </Col>
+            </Row>
             {originalSvg && (
-                <>
+                <div style={{ width: '100%', maxWidth: '1100px', margin: '0 auto' }}>
                     <SvgVariants
                         originalSvg={originalSvg}
                         paddingX={paddingX}
@@ -113,8 +136,8 @@ export default function Home() {
                         setSecondaryColor={setNewSecondaryColor}
                         selectedVariants={selectedVariants}
                     />
-                </>
+                </div>
             )}
-        </div>
+        </Container>
     );
 }

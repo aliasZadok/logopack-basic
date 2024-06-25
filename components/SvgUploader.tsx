@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import styles from './SvgUploader.module.css';
 import { colord, extend } from 'colord';
 import namesPlugin from 'colord/plugins/names';
+import Image from 'next/image'
 
 extend([namesPlugin]);
 
@@ -99,7 +100,7 @@ const SvgUploader: React.FC<SvgUploaderProps> = ({ onUpload }) => {
         <div className={styles.container}>
             <div {...getRootProps({ className: `${styles.dropzone} ${isDragActive ? styles.active : ''}` })}>
                 <input {...getInputProps()} />
-                <img src="/upload_icon.svg" alt="Upload Icon" className={styles.uploadIcon} />
+                <Image src="/upload_icon.svg" alt="Upload Icon" width={64} height={64}/>
                 {isDragActive ? (
                     <p>DROP THE FILES HERE...</p>
                 ) : (
