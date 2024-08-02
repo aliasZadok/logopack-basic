@@ -17,6 +17,8 @@
     text-align: center;
     background-color: #ffffff;
     color: #333333;
+    font-weight: 500;
+    letter-spacing: .2rem;
 }
 
 .mainContainer {
@@ -66,8 +68,7 @@
 
 .colorRow,
 .colorPickerContainer,
-.cmykPrimaryContainer,
-.cmykSecondaryContainer {
+.cmykContainer {
     display: flex;
     align-items: center;
     margin-bottom: 10px;
@@ -79,6 +80,8 @@
     margin-left: 5px;
     padding: 5px;
     width: 50px;
+    font-weight: 300;
+    letter-spacing: .2rem;
     text-align: center;
     background-color: #ffffff;
     border: 1px solid #ccc;
@@ -100,8 +103,8 @@
     display: inline-block;
     width: 22px;
     height: 22px;
-    margin-right: 5px;
-    margin-bottom: 5px;
+    margin-right: 8px;
+    vertical-align: middle;
 }
 
 .checkboxWrapper input {
@@ -165,12 +168,16 @@
 .sizeTag {
     display: flex;
     align-items: center;
-    background-color: #f0f0f0;
+    background-color: #ecf9fe;
     padding: 5px 10px;
-    border-radius: 5px;
+    border-radius: 20px;
     margin-right: 10px;
     margin-bottom: 10px;
-    color: #333333;
+    color: #000;
+    border: 1px solid #bcd2e1;
+    letter-spacing: 0rem;
+    font-weight: normal;
+    font-size: 13px;
 }
 
 .downloadButton {
@@ -182,6 +189,7 @@
     cursor: pointer;
     font-size: 16px;
     margin-top: 20px;
+    font-weight: 500;
 }
 
 .downloadButton:hover {
@@ -190,11 +198,20 @@
 
 .label {
     color: #333333;
-    margin-left: 5px;
+    font-size: small;
+    margin-bottom: 8px;
+}
+
+.labelPadding{
+    color: #333333;
+    letter-spacing: 0rem;
+    font-weight: normal;
+    margin-right: 5px;
 }
 
 .heading {
     color: #000;
+    margin-bottom: 8px;
 }
 
 .addButton {
@@ -206,15 +223,18 @@
     cursor: pointer;
     font-size: 14px;
     margin-left: 5px;
+    letter-spacing: 0rem;
+    font-weight: normal;
 }
 
 .removeButton {
     background-color: transparent;
-    color: #ff0000;
+    color: #8898a3;
     border: none;
     padding: 0;
     cursor: pointer;
     font-size: 14px;
+    margin-left: 5px;
 }
 
 .colorSquare,
@@ -265,6 +285,8 @@
 
 .colorCMYK {
     margin-left: 20px;
+    display: flex;
+    flex-direction: column;
 }
 
 @media (min-width: 768px) {
@@ -274,8 +296,7 @@
     }
 }
 
-.cmykPrimaryContainer .cmykInputGroup,
-.cmykSecondaryContainer .cmykInputGroup {
+.cmykContainer.cmykInputGroup {
     display: flex;
     align-items: center;
 }

@@ -12,6 +12,8 @@
     padding: 4px;
     width: fit-content;
     cursor: pointer;
+    letter-spacing: 0rem;
+    font-weight: normal;
 }
 
 .dropdownMenu {
@@ -28,6 +30,8 @@
     padding: 10px;
     cursor: pointer;
     font-size: 14px;
+    letter-spacing: 0rem;
+    font-weight: normal;
 }
 
 .dropdownItem:hover {
@@ -43,6 +47,8 @@
 
 .customSizeContainer label {
     font-size: 14px;
+    letter-spacing: 0rem;
+    font-weight: normal;
 }
 
 .customSizeInput {

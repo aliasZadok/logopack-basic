@@ -1,18 +1,23 @@
-/* Import Open Sans from Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap');
-
-/* Champion-HTF-Lightweight from the CDN */
-@import url('https://db.onlinewebfonts.com/c/6aba8df63a0880037f4cd204805dbfea?family=Champion-HTF-Lightweight');
+@font-face {
+  font-family: 'Champion-HTF-Lightweight';
+  src: url('/fonts/Champion-HTF-Lightweight.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* Apply Open Sans to body */
 body, p, button {
-    font-family: 'Open Sans';
+    font-family: var(--font-open-sans);
+    font-weight: 500;
+    letter-spacing: .2rem;
 }
 
 /* Apply Champion-HTF-Lightweight to headers */
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Champion-HTF-Lightweight';
     font-weight: normal;
+    letter-spacing: 0rem;
 }
 
 :root {
@@ -90,19 +95,19 @@ h1 {
 }
 
 h2 {
-  font-size: 2em;
+  font-size: 2.5em;
 }
 
 h3 {
-  font-size: 1em;
+  font-size: 1.25em;
 }
 
 h4 {
-  font-size: 1.5em;
+  font-size: 1.05em;
 }
 
 h5 {
-  font-size: 1.25em;
+  font-size: 1em;
 }
 
 h6 {

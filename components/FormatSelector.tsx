@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FormControl, InputGroup, Button } from 'react-bootstrap';
 import { ChromePicker } from 'react-color';
 import styles from './FormatSelector.module.css';
 import CustomDropdown from './CustomDropdown';
 import { EditableInput } from 'react-color/lib/components/common';
-
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/ReactToastify.css';
 import { colord, extend } from 'colord';
 import cmykPlugin from 'colord/plugins/cmyk';
 
@@ -21,12 +22,10 @@ interface FormatSelectorProps {
     originalSvg: string;
     blackSvg: string;
     whiteSvg: string;
-    primaryColor: string;
-    secondaryColor: string;
+    colors: string[];
     onPaddingChange: (x: number, y: number) => void;
     onSizeChange: (sizes: { type: string; value: number | { width: number; height: number } }[]) => void;
-    setPrimaryColor: React.Dispatch<React.SetStateAction<string>>;
-    setSecondaryColor: React.Dispatch<React.SetStateAction<string>>;
+    setColors: React.Dispatch<React.SetStateAction<string[]>>;
     fileName: string;
     selectedVariants: string[];
 }
@@ -44,16 +43,21 @@ interface SvgVariants {
     }[];
 }
 
+interface CmykColor {
+    c: number;
+    m: number;
+    y: number;
+    k: number;
+}
+
 const FormatSelector: React.FC<FormatSelectorProps> = ({
     originalSvg,
     blackSvg,
     whiteSvg,
-    primaryColor,
-    secondaryColor,
+    colors,
     onPaddingChange,
     onSizeChange,
-    setPrimaryColor,
-    setSecondaryColor,
+    setColors,
     fileName,
     selectedVariants
 }) => {
@@ -65,26 +69,20 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     const [sizeType, setSizeType] = useState<string>('Width');
     const [sizeValue, setSizeValue] = useState<number | { width: number; height: number }>(0);
     const [sizes, setSizes] = useState<{ type: string; value: number | { width: number; height: number } }[]>([]);
-    const [customSize, setCustomSize] = useState<number>(0);
+    const [loading, setLoading] = useState<boolean>(false);
     const customSizeRef = useRef<HTMLInputElement>(null);
-    const [colors, setColors] = useState<{ [key: string]: string | number }>({
-        rgbPrimary: primaryColor,
-        rgbSecondary: secondaryColor,
-        cmykPrimaryC: 0,
-        cmykPrimaryM: 0,
-        cmykPrimaryY: 0,
-        cmykPrimaryK: 0,
-        cmykSecondaryC: 0,
-        cmykSecondaryM: 0,
-        cmykSecondaryY: 0,
-        cmykSecondaryK: 0
-    });
-    const [displayColorPicker, setDisplayColorPicker] = useState<{ [key: string]: boolean }>({
-        rgbPrimary: false,
-        rgbSecondary: false,
-        cmykPrimary: false,
-        cmykSecondary: false,
-    });
+    const [widthValue, setWidthValue] = useState<number>(0);
+    const [heightValue, setHeightValue] = useState<number>(0);
+    const [dimensionsValue, setDimensionsValue] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
+    // Initialize individual color states
+    const [rgbColors, setRgbColors] = useState<string[]>(colors);
+    const [cmykColors, setCmykColors] = useState<CmykColor[]>(
+        colors.map(color => rgbToCmyk(color))
+    );
+    const [displayColorPicker, setDisplayColorPicker] = useState<boolean[]>(
+        colors.map(() => false)
+    );
     const [showVariantDialog, setShowVariantDialog] = useState<boolean>(false);
 
     useEffect(() => {
@@ -100,33 +98,8 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     }, []);
 
     useEffect(() => {
-        const { c, m, y, k } = rgbToCmyk(primaryColor);
-        setColors((prevColors) => ({
-            ...prevColors,
-            rgbPrimary: primaryColor,
-            cmykPrimaryC: Math.round(c),
-            cmykPrimaryM: Math.round(m),
-            cmykPrimaryY: Math.round(y),
-            cmykPrimaryK: Math.round(k)
-        }));
-    }, [primaryColor]);
-
-    useEffect(() => {
-        const { c, m, y, k } = rgbToCmyk(secondaryColor);
-        setColors((prevColors) => ({
-            ...prevColors,
-            rgbSecondary: secondaryColor,
-            cmykSecondaryC: Math.round(c),
-            cmykSecondaryM: Math.round(m),
-            cmykSecondaryY: Math.round(y),
-            cmykSecondaryK: Math.round(k)
-        }));
-    }, [secondaryColor]);
-
-    useEffect(() => {
         setCurrentFileName(fileName.replace(/\.[^/.]+$/, ""));
     }, [fileName]);
-
 
     const handleFormatChange = (format: string) => {
         setSelectedFormats((prev) =>
@@ -149,16 +122,33 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const handleAddSize = () => {
-        if (typeof sizeValue === 'number' && sizeValue > 0) {
-            const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
-            setSizes(newSizes);
-            onSizeChange(newSizes);
-            setSizeValue(0);
-        } else if (typeof sizeValue === 'object' && sizeValue.width > 0 && sizeValue.height > 0) {
-            const newSizes = [...sizes, { type: sizeType, value: sizeValue }];
-            setSizes(newSizes);
-            onSizeChange(newSizes);
-            setSizeValue(0);
+        let newSize: { type: string; value: number | { width: number; height: number } };
+    
+        if (sizeType === 'Dimensions') {
+            if (dimensionsValue.width > 0 && dimensionsValue.height > 0) {
+                newSize = { type: 'Dimensions', value: dimensionsValue };
+            } else {
+                return; // Invalid dimensions
+            }
+        } else if (sizeType === 'Width' && widthValue > 0) {
+            newSize = { type: 'Width', value: widthValue };
+        } else if (sizeType === 'Height' && heightValue > 0) {
+            newSize = { type: 'Height', value: heightValue };
+        } else {
+            return; // Invalid size
+        }
+    
+        const newSizes = [...sizes, newSize];
+        setSizes(newSizes);
+        onSizeChange(newSizes);
+        
+        // Reset the values after adding
+        if (sizeType === 'Dimensions') {
+            setDimensionsValue({ width: 0, height: 0 });
+        } else if (sizeType === 'Width') {
+            setWidthValue(0);
+        } else if (sizeType === 'Height') {
+            setHeightValue(0);
         }
     };
 
@@ -169,8 +159,16 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const handleSizeTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        setSizeType(e.target.value);
-        setSizeValue(e.target.value === 'Dimensions' ? { width: 0, height: 0 } : 0);
+        const newSizeType = e.target.value as 'Width' | 'Height' | 'Dimensions';
+        setSizeType(newSizeType);
+        
+        if (newSizeType === 'Width') {
+            setWidthValue(heightValue || widthValue);
+        } else if (newSizeType === 'Height') {
+            setHeightValue(widthValue || heightValue);
+        } else if (newSizeType === 'Dimensions') {
+            setDimensionsValue({ width: widthValue || dimensionsValue.width, height: heightValue || dimensionsValue.height });
+        }
     };
 
     const handleDimensionChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'width' | 'height') => {
@@ -182,7 +180,6 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
     };
 
     const uploadAndDownload = async () => {
-
         if (selectedFormats.length === 0) {
             alert('Please select at least one file format for download.');
             return;
@@ -212,132 +209,133 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
         formData.append('svgVariants', JSON.stringify(svgVariants));
         formData.append('selectedVariants', JSON.stringify(selectedVariants));
     
-        // Check if it's a single format and single variant
-        if (selectedFormats.length === 1 && selectedVariants.length === 1) {
-            formData.append('format', selectedFormats[0]);
-            formData.append('color', selectedColors[0]);
-            formData.append('svgVariant', JSON.stringify(svgVariants[selectedVariants[0] as keyof SvgVariants]));
-            formData.append('size', JSON.stringify(sizes[0] || {}));
-    
-            const response = await fetch('/api/singleFileDownload', {
-                method: 'POST',
-                body: formData,
-            });
-    
-            if (!response.ok) {
-                console.error('Failed to upload and process files');
-                return;
-            }
-    
-            const fileBlob = await response.blob();
-            const url = window.URL.createObjectURL(fileBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${currentFileName}.${selectedFormats[0]}`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-        } else {
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData,
-            });
-    
-            if (!response.ok) {
-                console.error('Failed to upload and process files');
-                return;
-            }
-    
-            const zipBlob = await response.blob();
-            const url = window.URL.createObjectURL(zipBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${currentFileName}.zip`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+        if (selectedColors.includes('cmyk')) {
+            formData.append('cmykColors', JSON.stringify(cmykColors));
         }
-    };
-    
 
-    const handleRgbColorChange = (colorValue: any, picker: string) => {
+        setLoading(true); // Show loading state
+        try {
+            let response;
+            if (selectedFormats.length === 1 && selectedVariants.length === 1) {
+                formData.append('format', selectedFormats[0]);
+                formData.append('color', selectedColors[0]);
+                formData.append('svgVariant', JSON.stringify(svgVariants[selectedVariants[0] as keyof SvgVariants]));
+                formData.append('size', JSON.stringify(sizes[0] || {}));
+                formData.append('selectedVariant', selectedVariants[0]);
+        
+                response = await fetch('/api/singleFileDownload', { method: 'POST', body: formData });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to upload and process files');
+                }
+        
+                const fileBlob = await response.blob();
+                const url = window.URL.createObjectURL(fileBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFileName}.${selectedFormats[0]}`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+        
+                toast.success('File downloaded successfully!');
+            } else {
+                response = await fetch('/api/upload', { method: 'POST', body: formData });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to upload and process files');
+                }
+        
+                const zipBlob = await response.blob();
+                const url = window.URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentFileName}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+        
+                toast.success('Files downloaded successfully!');
+            }
+        } catch (error) {
+            console.error('Error during download:', error);
+            toast.error('Failed to download files.');
+        } finally {
+            setLoading(false); // Hide loading state
+        }
+    };    
+
+    const handleRgbColorChange = useCallback((colorValue: any, index: number) => {
         const color = colord(colorValue.hex);
-        const { c, m, y, k } = color.toCmyk();
-        setColors((prev) => ({
-            ...prev,
-            [picker]: color.toHex(),
-            [`${picker}C`]: Math.round(c * 100),
-            [`${picker}M`]: Math.round(m * 100),
-            [`${picker}Y`]: Math.round(y * 100),
-            [`${picker}K`]: Math.round(k * 100)
-        }));
-        if (picker === 'rgbPrimary') {
-            setPrimaryColor(color.toHex());
-        } else if (picker === 'rgbSecondary') {
-            setSecondaryColor(color.toHex());
-        }
-    };
+        const updatedRgbColors = [...rgbColors];
+        const updatedCmykColors = [...cmykColors];
 
-    const handleCmykColorChange = (value: string | number, picker: string) => {
-        setColors((prev) => {
-            const roundedValue = Math.min(100, Math.max(0, Math.round(Number(value))));
-            const updatedColors = {
-                ...prev,
-                [picker]: roundedValue
-            };
+        updatedRgbColors[index] = color.toHex();
+        updatedCmykColors[index] = rgbToCmyk(color.toHex());
 
-            const cmykType = picker.includes("Secondary") ? "Secondary" : "Primary";
-            const colorString = `cmyk(${updatedColors[`cmyk${cmykType}C`]}%,${updatedColors[`cmyk${cmykType}M`]}%,${updatedColors[`cmyk${cmykType}Y`]}%,${updatedColors[`cmyk${cmykType}K`]}%)`;
+        setRgbColors(updatedRgbColors);
+        setCmykColors(updatedCmykColors);
+        
+        // Update the main colors array without causing re-renders
+        setColors(updatedRgbColors);
+    }, [rgbColors, cmykColors, setColors]);
 
-            const color = window.w3color(colorString);
-            const rgbHex = color.toHexString();
-
-            setColors((prevColors) => ({
-                ...prevColors,
-                [`rgb${cmykType}`]: rgbHex
-            }));
-
-            const element = document.querySelector(`.${styles[`colorSquare${cmykType}`]}`);
-            if (element) {
-                (element as HTMLElement).style.backgroundColor = color.toRgbString();
-            }
-
-            return updatedColors;
+    const handleColorSquareClick = useCallback((index: number, event: React.MouseEvent) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setDisplayColorPicker(prev => {
+            const updated = [...prev];
+            updated[index] = !updated[index];
+            return updated;
         });
-    };
+    }, []);
 
-    const handleColorSquareClick = (picker: string) => {
-        setDisplayColorPicker((prev) => ({
-            ...prev,
-            [picker]: !prev[picker],
-        }));
-    };
-
-    const handleEditableInputChange = (hex: string, picker: string) => {
+    const handleEditableInputChange = useCallback((hex: string, index: number) => {
         const color = colord(hex);
-        const { c, m, y, k } = color.toCmyk();
-        setColors((prev) => ({
-            ...prev,
-            [picker]: hex,
-            [`${picker}C`]: Math.round(c * 100),
-            [`${picker}M`]: Math.round(m * 100),
-            [`${picker}Y`]: Math.round(y * 100),
-            [`${picker}K`]: Math.round(k * 100)
-        }));
-        if (picker === 'rgbPrimary') {
-            setPrimaryColor(hex);
-        } else if (picker === 'rgbSecondary') {
-            setSecondaryColor(hex);
-        }
-    };
+        const updatedRgbColors = [...rgbColors];
+        const updatedCmykColors = [...cmykColors];
+
+        updatedRgbColors[index] = color.toHex();
+        updatedCmykColors[index] = rgbToCmyk(color.toHex());
+
+        setRgbColors(updatedRgbColors);
+        setCmykColors(updatedCmykColors);
+
+        // Update the main colors array without causing re-renders
+        setColors(updatedRgbColors);
+    }, [rgbColors, cmykColors, setColors]);
+
+    const handleCmykColorChange = useCallback((value: string | number, index: number, channel: 'c' | 'm' | 'y' | 'k') => {
+        const roundedValue = Math.min(100, Math.max(0, Math.round(Number(value))));
+        const updatedCmykColors = [...cmykColors];
+        updatedCmykColors[index] = {
+            ...updatedCmykColors[index],
+            [channel]: roundedValue
+        };
+        
+        const cmykColorString = `cmyk(${updatedCmykColors[index].c}%,${updatedCmykColors[index].m}%,${updatedCmykColors[index].y}%,${updatedCmykColors[index].k}%)`;
+        const color = window.w3color(cmykColorString);
+        const rgbHex = color.toHexString();
+
+        const updatedRgbColors = [...rgbColors];
+        updatedRgbColors[index] = rgbHex;
+
+        setRgbColors(updatedRgbColors);
+        setCmykColors(updatedCmykColors);
+
+        // Update the main colors array without causing re-renders
+        setColors(updatedRgbColors);
+    }, [cmykColors, rgbColors, setColors]);
 
     const inputStyles = {
         input: {
             border: '1px solid #ccc',
             borderRadius: '5px',
             padding: '5px',
-            width: '80px',
+            width: '90px',
             marginRight: '10px',
+            fontWeight: '500',
+            letterSpacing: '0.2rem'
         },
         label: {
             display: 'none',
@@ -357,7 +355,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                 <div className={styles.firstColumn}>
                     <div className={styles.filesRow}>
                         <div className={styles.formatGroup}>
-                            <h3 className={styles.heading}>Digital Files</h3>
+                            <h3 className={styles.heading}>DIGITAL FILES</h3>
                             <label className={styles.label}>
                                 <div className={styles.checkboxWrapper}>
                                     <input
@@ -394,7 +392,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                             </label>
                         </div>
                         <div className={styles.printFilesColumn}>
-                            <h3 className={styles.heading}>Print Files</h3>
+                            <h3 className={styles.heading}>PRINT FILES</h3>
                             <label className={styles.label}>
                                 <div className={styles.checkboxWrapper}>
                                     <input
@@ -431,7 +429,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                         </div>
                     </div>
                     <div className={styles.rowNoMargin}>
-                        <h3 className={styles.heading}>Colors</h3>
+                        <h3 className={styles.heading}>COLORS</h3>
                     </div>
                     <div className={styles.row}>
                         <div className={styles.colorGroup}>
@@ -447,50 +445,30 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                 </div>
                                 RGB
                             </label>
-                            <div className={styles.colorPickerContainer}>
-                                <div
-                                    className={styles.colorSquare}
-                                    style={{ backgroundColor: colors.rgbPrimary as string }}
-                                    onClick={() => handleColorSquareClick('rgbPrimary')}
-                                />
-                                {displayColorPicker.rgbPrimary ? (
-                                    <div className={styles.popover}>
-                                        <div className={styles.cover} onClick={() => handleColorSquareClick('rgbPrimary')} />
-                                        <ChromePicker
-                                            color={colors.rgbPrimary as string}
-                                            onChange={(color) => handleRgbColorChange(color, 'rgbPrimary')}
-                                        />
-                                    </div>
-                                ) : null}
-                                <EditableInput
-                                    style={inputStyles}
-                                    label="hex"
-                                    value={colors.rgbPrimary as string}
-                                    onChange={(e) => handleEditableInputChange(e.hex, 'rgbPrimary')}
-                                />
-                            </div>
-                            <div className={styles.colorPickerContainer}>
-                                <div
-                                    className={styles.colorSquare}
-                                    style={{ backgroundColor: colors.rgbSecondary as string }}
-                                    onClick={() => handleColorSquareClick('rgbSecondary')}
-                                />
-                                {displayColorPicker.rgbSecondary ? (
-                                    <div className={styles.popover}>
-                                        <div className={styles.cover} onClick={() => handleColorSquareClick('rgbSecondary')} />
-                                        <ChromePicker
-                                            color={colors.rgbSecondary as string}
-                                            onChange={(color) => handleRgbColorChange(color, 'rgbSecondary')}
-                                        />
-                                    </div>
-                                ) : null}
-                                <EditableInput
-                                    style={inputStyles}
-                                    label="hex"
-                                    value={colors.rgbSecondary as string}
-                                    onChange={(e) => handleEditableInputChange(e.hex, 'rgbSecondary')}
-                                />
-                            </div>
+                            {rgbColors.map((color, index) => (
+                                <div key={index} className={styles.colorPickerContainer}>
+                                    <div
+                                        className={styles.colorSquare}
+                                        style={{ backgroundColor: color }}
+                                        onClick={(e) => handleColorSquareClick(index, e)}
+                                    />
+                                    {displayColorPicker[index] ? (
+                                        <div className={styles.popover}>
+                                            <div className={styles.cover} onClick={(e) => handleColorSquareClick(index, e)} />
+                                            <ChromePicker
+                                                color={color}
+                                                onChange={(color) => handleRgbColorChange(color, index)}
+                                            />
+                                        </div>
+                                    ) : null}
+                                    <EditableInput
+                                        style={inputStyles}
+                                        label="hex"
+                                        value={color}
+                                        onChange={(e) => handleEditableInputChange(e.hex, index)}
+                                    />
+                                </div>
+                            ))}
                         </div>
                         <div className={styles.colorCMYK}>
                             <label className={styles.label}>
@@ -505,73 +483,45 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                 </div>
                                 CMYK
                             </label>
-                            <div className={styles.cmykPrimaryContainer}>
-                                 <div
-                                    className={styles.colorSquare}
-                                    style={{ backgroundColor: colors.rgbPrimary as string }}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykPrimaryC as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryC')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykPrimaryM as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryM')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykPrimaryY as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryY')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykPrimaryK as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykPrimaryK')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                            </div>
-                            <div className={styles.cmykSecondaryContainer}>
-                                <div
-                                    className={styles.colorSquare}
-                                    style={{ backgroundColor: colors.rgbSecondary as string }}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykSecondaryC as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryC')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykSecondaryM as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryM')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykSecondaryY as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryY')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                                <input
-                                    type="number"
-                                    value={colors.cmykSecondaryK as number}
-                                    onChange={(e) => handleCmykColorChange(e.target.value, 'cmykSecondaryK')}
-                                    className={`${styles.cmykInput} ${styles.noSpinner}`}
-                                />
-                            </div>
+                            {cmykColors.map((cmykColor, index) => (
+                                <div key={index} className={styles.cmykContainer}>
+                                    <div
+                                        className={styles.colorSquare}
+                                        style={{ backgroundColor: rgbColors[index] }}
+                                    />
+                                    <input
+                                        type="number"
+                                        value={cmykColor.c}
+                                        onChange={(e) => handleCmykColorChange(e.target.value, index, 'c')}
+                                        className={`${styles.cmykInput} ${styles.noSpinner}`}
+                                    />
+                                    <input
+                                        type="number"
+                                        value={cmykColor.m}
+                                        onChange={(e) => handleCmykColorChange(e.target.value, index, 'm')}
+                                        className={`${styles.cmykInput} ${styles.noSpinner}`}
+                                    />
+                                    <input
+                                        type="number"
+                                        value={cmykColor.y}
+                                        onChange={(e) => handleCmykColorChange(e.target.value, index, 'y')}
+                                        className={`${styles.cmykInput} ${styles.noSpinner}`}
+                                    />
+                                    <input
+                                        type="number"
+                                        value={cmykColor.k}
+                                        onChange={(e) => handleCmykColorChange(e.target.value, index, 'k')}
+                                        className={`${styles.cmykInput} ${styles.noSpinner}`}
+                                    />
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
                 <div className={styles.secondColumn}>
-                    <h3 className={styles.heading}>Margin</h3>
+                    <h3 className={styles.heading}>MARGIN</h3>
                     <div className={styles.sliderContainer}>
-                        <label className={styles.label}>Padding X</label>
+                        <label className={styles.labelPadding}>Padding X</label>
                         <input
                             type="range"
                             min="0"
@@ -596,7 +546,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                         />
                     </div>
                     <div className={styles.sliderContainer}>
-                        <label className={styles.label}>Padding Y</label>
+                        <label className={styles.labelPadding}>Padding Y</label>
                         <input
                             type="range"
                             min="0"
@@ -620,7 +570,7 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                             className={styles.numberInput}
                         />
                     </div>
-                    <h3 className={styles.heading}>Sizes</h3>
+                    <h3 className={styles.heading}>SIZES</h3>
                     <InputGroup className={styles.sizeInputGroup}>
                         <FormControl as="select" value={sizeType} onChange={(e: any) => handleSizeTypeChange(e)} style={{ backgroundColor: "#fff", color: "#000", borderRadius: "5px", border: "1px solid #ccc", padding: "4px"}}>
                             <option value="Width">Width</option>
@@ -632,8 +582,8 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                 <FormControl
                                     type="number"
                                     min="0"
-                                    value={typeof sizeValue === 'object' ? sizeValue.width : 0}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleDimensionChange(e, 'width')}
+                                    value={dimensionsValue.width}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDimensionsValue(prev => ({ ...prev, width: Number(e.target.value) }))}
                                     className={`${styles.numberInput} ${styles.noSpinner}`}
                                     placeholder="Width"
                                 />
@@ -641,14 +591,17 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                                 <FormControl
                                     type="number"
                                     min="0"
-                                    value={typeof sizeValue === 'object' ? sizeValue.height : 0}
-                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleDimensionChange(e, 'height')}
+                                    value={dimensionsValue.height}
+                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDimensionsValue(prev => ({ ...prev, height: Number(e.target.value) }))}
                                     className={`${styles.numberInput} ${styles.noSpinner}`}
                                     placeholder="Height"
                                 />
                             </>
                         ) : (
-                            <CustomDropdown onSizeChange={setSizeValue} />
+                                <CustomDropdown 
+                                    onSizeChange={sizeType === 'Width' ? setWidthValue : setHeightValue} 
+                                    value={sizeType === 'Width' ? widthValue : heightValue}
+                                />
                         )}
                         <Button className={styles.addButton} onClick={handleAddSize}>
                             + Add
@@ -658,8 +611,10 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                         {sizes.map((size, index) => (
                             <span key={index} className={styles.sizeTag}>
                                 {size.type === 'Dimensions'
-                                    ? `${(size.value as { width: number; height: number }).width} x ${(size.value as { width: number; height: number }).height}`
-                                    : `${size.type} ${size.value}`}
+                                    ? <><strong>Dimensions:&nbsp;</strong> {(size.value as { width: number; height: number }).width} x {(size.value as { width: number; height: number }).height}</>
+                                    : size.type === 'Width'
+                                    ? <><strong>Width:&nbsp;</strong> {size.value}</>
+                                    : <><strong>Height:&nbsp;</strong> {size.value}</>}
                                 <Button
                                     className={styles.removeButton}
                                     size="sm"
@@ -672,8 +627,14 @@ const FormatSelector: React.FC<FormatSelectorProps> = ({
                     </div>
                 </div>
             </div>
-            <button className={styles.downloadButton} onClick={uploadAndDownload}>DOWNLOAD LOGO PACK</button>
-
+            <button
+                className={styles.downloadButton}
+                onClick={uploadAndDownload}
+                disabled={loading}
+            >
+                {loading ? 'PROCESSING...' : 'DOWNLOAD LOGO PACK'}
+            </button>
+            <ToastContainer position="top-right" style={{letterSpacing: '0rem'}}/>
             <dialog className={styles.variantDialog} open={showVariantDialog}>
                 <div>
                     <h3>Select Variants</h3>
@@ -700,7 +661,7 @@ const rgbToCmyk = (rgb: string): { c: number, m: number, y: number, k: number } 
     y = isNaN(y) ? 0 : y;
     k = isNaN(k) ? 0 : k;
 
-    return { c: c * 100, m: m * 100, y: y * 100, k: k * 100 };
+    return { c: Math.round(c * 100), m: Math.round(m * 100), y: Math.round(y * 100), k: Math.round(k * 100) };
 };
 
 export default FormatSelector;

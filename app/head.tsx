@@ -1,7 +1,7 @@
 export default function Head() {
   return (
     <>
-      <title>Logopack</title>
+      <title>LogoPack</title>
       <meta content="width=device-width, initial-scale=1" name="viewport" />
       <meta name="description" content="Generate logo files in seconds." />
       <link rel="icon" href="/favicon.ico" />

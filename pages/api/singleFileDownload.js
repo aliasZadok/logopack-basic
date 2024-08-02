@@ -1,15 +1,19 @@
 import { createRouter } from 'next-connect';
 import multer from 'multer';
-import sharp from 'sharp';
 import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { optimize } from 'svgo';
+import { Resvg } from '@resvg/resvg-js';
+import sharp from 'sharp';
+import xml2js from 'xml2js';
+import { colord, extend } from 'colord';
+import cmykPlugin from 'colord/plugins/cmyk';
+import namesPlugin from 'colord/plugins/names';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
-import { extend } from 'colord';
-import cmykPlugin from 'colord/plugins/cmyk';
 
-extend([cmykPlugin]);
+extend([cmykPlugin, namesPlugin]);
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -17,50 +21,216 @@ const router = createRouter();
 
 router.use(upload.single('file'));
 
-const addIccColorToSvg = (svgContent, primaryCmyk, secondaryCmyk) => {
-    const cmykToString = (cmyk) => `icc-color(#CMYK, ${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
+const addIccColorToSvg = (svgContent, cmykColors) => {
+    const parser = new xml2js.Parser();
+    const builder = new xml2js.Builder();
+    let modifiedSvg;
 
-    return svgContent
-        .replace(new RegExp(`fill="${primaryCmyk.rgb}"`, 'g'), `fill="${primaryCmyk.rgb} ${cmykToString(primaryCmyk)}"`)
-        .replace(new RegExp(`fill="${secondaryCmyk.rgb}"`, 'g'), `fill="${secondaryCmyk.rgb} ${cmykToString(secondaryCmyk)}"`);
-};
+    parser.parseString(svgContent, (err, result) => {
+        if (err) {
+            console.error('Error parsing SVG content:', err);
+            throw new Error('Error parsing SVG content');
+        }
 
-const addSizeAttributesToSvg = (svgContent, width, height) => {
-    let modifiedSvg = svgContent;
+        const hexToRgb = (hex) => {
+            const { r, g, b } = colord(hex).toRgb();
+            return `rgb(${r}, ${g}, ${b})`;
+        };
 
-    if (width) {
-        modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 width="${width}">`);
-    }
-    if (height) {
-        modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 height="${height}">`);
-    }
+        const hexToCmyk = (hex) => {
+            const rgb = colord(hex).toRgb();
+            return colord(rgb).toCmyk();
+        };
+
+        const colorsMatch = (cmyk1, cmyk2, tolerance = 1) => {
+            return (
+                Math.abs(cmyk1.c - cmyk2.c) <= tolerance &&
+                Math.abs(cmyk1.m - cmyk2.m) <= tolerance &&
+                Math.abs(cmyk1.y - cmyk2.y) <= tolerance &&
+                Math.abs(cmyk1.k - cmyk2.k) <= tolerance
+            );
+        };
+
+        const traverseAndUpdateColors = (node, depth = 0) => {
+            if (Array.isArray(node)) {
+                node.forEach((childNode, index) => {
+                    traverseAndUpdateColors(childNode, depth + 1);
+                });
+            } else if (typeof node === 'object' && node !== null) {
+                if (node.$) {
+                    ['fill', 'stroke'].forEach(attr => {
+                        if (node.$[attr]) {
+                            const cmykValue = hexToCmyk(node.$[attr]);
+                            cmykColors.forEach((cmyk) => {
+                                const cmykColor = { c: cmyk.c, m: cmyk.m, y: cmyk.y, k: cmyk.k };
+                                const cmykString = `icc-color(#CMYK, ${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
+                                if (colorsMatch(cmykValue, cmykColor)) {
+                                    const rgb = hexToRgb(node.$[attr]);
+                                    node.$[attr] = `${rgb} ${cmykString}`;
+                                }
+                            });
+                        }
+                    });
+                }
+            } 
+        };
+
+        traverseAndUpdateColors(result.svg);
+        modifiedSvg = builder.buildObject(result);
+    });
 
     return modifiedSvg;
+};
+
+const addSizeAttributesToSvg = (svgContent, newWidth, newHeight) => {
+    let modifiedSvg = svgContent;
+
+    // Extract existing viewBox
+    const viewBoxMatch = svgContent.match(/viewBox=["']([^"']*)["']/);
+    const viewBox = viewBoxMatch ? viewBoxMatch[1] : null;
+
+    if (!viewBox) {
+        console.error('SVG does not have a viewBox attribute');
+        return svgContent;
+    }
+
+    // Calculate aspect ratio from viewBox
+    const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+    const aspectRatio = vbWidth / vbHeight;
+
+    // Prepare new SVG tag
+    let newSvgOpenTag = modifiedSvg.match(/<svg[^>]*>/)[0];
+
+    if (newWidth) {
+        const calculatedHeight = Math.round(newWidth / aspectRatio);
+        newSvgOpenTag = newSvgOpenTag.replace(/width=["'][^"']*["']/, '');
+        newSvgOpenTag = newSvgOpenTag.replace(/height=["'][^"']*["']/, '');
+        newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg width="${newWidth}" height="${calculatedHeight}"`);
+    } else if (newHeight) {
+        const calculatedWidth = Math.round(newHeight * aspectRatio);
+        newSvgOpenTag = newSvgOpenTag.replace(/width=["'][^"']*["']/, '');
+        newSvgOpenTag = newSvgOpenTag.replace(/height=["'][^"']*["']/, '');
+        newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg width="${calculatedWidth}" height="${newHeight}"`);
+    }
+
+    // Ensure viewBox is present
+    if (!newSvgOpenTag.includes('viewBox')) {
+        newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg viewBox="${viewBox}"`);
+    }
+
+    modifiedSvg = modifiedSvg.replace(/<svg[^>]*>/, newSvgOpenTag);
+
+    return modifiedSvg;
+};
+
+const sanitizeFileName = (name) => name.replace(/\s+/g, '_');
+
+const convertSvgToPdf = async (inputPath, outputPath, isWhiteVariant) => {
+    if (isWhiteVariant) {
+        const svgContent = fs.readFileSync(inputPath, 'utf-8');
+        const pdfDoc = new PDFDocument();
+        const stream = fs.createWriteStream(outputPath);
+
+        pdfDoc.pipe(stream);
+        pdfDoc.rect(0, 0, pdfDoc.page.width, pdfDoc.page.height).fill('black');
+        SVGtoPDF(pdfDoc, svgContent, 0, 0, { assumePt: true });
+        pdfDoc.end();
+
+        return new Promise((resolve, reject) => {
+            stream.on('finish', resolve);
+            stream.on('error', reject);
+        });
+    } else {
+        return new Promise((resolve, reject) => {
+            exec(`inkscape ${inputPath} --export-type=pdf --export-filename=${outputPath}`, (error) => {
+                if (error) {
+                    console.error('Error converting SVG to PDF:', error);
+                    return reject(error);
+                }
+                resolve();
+            });
+        });
+    }
+};
+
+const convertSvgToPng = async (svgContent, outputPath) => {
+    
+    const resvg = new Resvg(svgContent);
+    const pngBuffer = resvg.render().asPng();
+    
+    await sharp(pngBuffer)
+        .png()
+        .toFile(outputPath);
+
+};
+
+const convertSvgToJpg = async (svgContent, outputPath, isWhiteVariant, quality = 100) => {
+    
+    const resvg = new Resvg(svgContent);
+    const pngBuffer = resvg.render().asPng();
+
+    const backgroundColor = isWhiteVariant ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+
+    await sharp(pngBuffer)
+        .flatten({ background: backgroundColor })
+        .jpeg({ quality })
+        .toFile(outputPath);
+
+};
+
+const convertSvgToWebp = async (svgContent, outputPath, quality = 100) => {
+    
+    const resvg = new Resvg(svgContent);
+    const pngBuffer = resvg.render().asPng();
+    
+    await sharp(pngBuffer)
+        .webp({ quality })
+        .toFile(outputPath);
+
+};
+
+const convertSvgToEps = (inputPath, outputPath) => {
+    return new Promise((resolve, reject) => {
+        exec(`inkscape ${inputPath} --export-eps=${outputPath}`, (error) => {
+            if (error) {
+                return reject(error);
+            }
+            resolve();
+        });
+    });
+};
+
+const convertEpsToAi = (inputPath, outputPath) => {
+    return new Promise((resolve, reject) => {
+        exec(`pstoedit -f ps2ai ${inputPath} ${outputPath}`, (error) => {
+            if (error) {
+                return reject(error);
+            }
+            resolve();
+        });
+    });
 };
 
 router.post(async (req, res) => {
     const file = req.file;
     const format = req.body.format;
     const color = req.body.color;
-    const fileName = req.body.fileName || 'logopack';
-    const svgVariant = JSON.parse(req.body.svgVariant);
-    const size = JSON.parse(req.body.size);
+    let fileName = req.body.fileName || 'logopack';
+    const svgVariants = JSON.parse(req.body.svgVariants);
+    const size = JSON.parse(req.body.size || '{}');
+    let width, height;
+    if (size.type === 'Width') {
+        width = Number(size.value);
+    } else if (size.type === 'Height') {
+        height = Number(size.value);
+    } else if (size.type === 'Dimensions') {
+        width = Number(size.value.width);
+        height = Number(size.value.height);
+    }
+    const selectedVariant = req.body.selectedVariant;
+    const cmykColors = JSON.parse(req.body.cmykColors || '[]');
 
-    const primaryCmyk = {
-        rgb: req.body.primaryColor,
-        c: parseFloat(req.body.cmykPrimaryC),
-        m: parseFloat(req.body.cmykPrimaryM),
-        y: parseFloat(req.body.cmykPrimaryY),
-        k: parseFloat(req.body.cmykPrimaryK),
-    };
-    const secondaryCmyk = {
-        rgb: req.body.secondaryColor,
-        c: parseFloat(req.body.cmykSecondaryC),
-        m: parseFloat(req.body.cmykSecondaryM),
-        y: parseFloat(req.body.cmykSecondaryY),
-        k: parseFloat(req.body.cmykSecondaryK),
-    };
-
+    fileName = sanitizeFileName(fileName);
     const svgPath = path.join(process.cwd(), file.path);
     const outputDir = path.join(process.cwd(), 'output');
 
@@ -68,103 +238,56 @@ router.post(async (req, res) => {
         fs.mkdirSync(outputDir);
     }
 
-    const convertSvgToPng = async (inputPath, outputPath) => {
-        await sharp(inputPath)
-            .png()
-            .toFile(outputPath);
-    };
+    let svgContent;
+    let isWhiteVariant = false;
+    if (selectedVariant === 'black') {
+        svgContent = svgVariants.black;
+    } else if (selectedVariant === 'white') {
+        svgContent = svgVariants.white;
+        isWhiteVariant = true;
+    } else {
+        svgContent = svgVariants.fullColor;
+    }
 
-    const convertSvgToJpg = async (inputPath, outputPath, variantName) => {
-        const isWhiteVariant = variantName.includes('White');
-        const pipeline = sharp(inputPath)
-            .flatten({ background: isWhiteVariant ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } })
-            .jpeg();
-        await pipeline.toFile(outputPath);
-    };
+    svgContent = optimize(svgContent, { multipass: true }).data;
 
-    const convertSvgToWebp = async (inputPath, outputPath) => {
-        await sharp(inputPath)
-            .webp()
-            .toFile(outputPath);
-    };
+    svgContent = addIccColorToSvg(svgContent, cmykColors);
 
-    const convertSvgToPdf = async (inputPath, outputPath) => {
-        const svgContent = fs.readFileSync(inputPath, 'utf-8');
-        const pdfDoc = new PDFDocument();
-        const stream = fs.createWriteStream(outputPath);
+    if (width) {
+        svgContent = addSizeAttributesToSvg(svgContent, width, null);
+    } else if (height) {
+        svgContent = addSizeAttributesToSvg(svgContent, null, height);
+    }
 
-        pdfDoc.pipe(stream);
-        SVGtoPDF(pdfDoc, svgContent, 0, 0);
-        pdfDoc.end();
-
-        return new Promise((resolve, reject) => {
-            stream.on('finish', resolve);
-            stream.on('error', reject);
-        });
-    };
-
-    const convertSvgToEps = (inputPath, outputPath, callback) => {
-        exec(`inkscape ${inputPath} --export-eps=${outputPath}`, callback);
-    };
-
-    const convertEpsToAi = (inputPath, outputPath, callback) => {
-        exec(`pstoedit -f ps2ai ${inputPath} ${outputPath}`, callback);
-    };
-
-    const processSingleVariant = async (variantName, svgContent, format, width, height) => {
-        const modifiedSvgContent = addSizeAttributesToSvg(svgContent, width, height);
+    const processSingleVariant = async (variantName, svgContent, format) => {
         const tempSvgPath = path.join(outputDir, `${variantName}.svg`);
         const outputPath = path.join(outputDir, `${variantName}.${format}`);
-    
-        console.log('Temporary SVG Path:', tempSvgPath);
-        console.log('Output Path:', outputPath);
-    
-        fs.writeFileSync(tempSvgPath, modifiedSvgContent);
-    
+
+        fs.writeFileSync(tempSvgPath, svgContent);
+
         try {
             if (format === 'png') {
-                await convertSvgToPng(tempSvgPath, outputPath);
+                await convertSvgToPng(svgContent, outputPath);
             } else if (format === 'jpg') {
-                await convertSvgToJpg(tempSvgPath, outputPath, variantName);
+                await convertSvgToJpg(svgContent, outputPath, isWhiteVariant);
             } else if (format === 'webp') {
-                await convertSvgToWebp(tempSvgPath, outputPath);
+                await convertSvgToWebp(svgContent, outputPath);
             } else if (format === 'pdf') {
-                await convertSvgToPdf(tempSvgPath, outputPath);
+                await convertSvgToPdf(tempSvgPath, outputPath, isWhiteVariant);
             } else if (format === 'eps') {
-                await new Promise((resolve, reject) => {
-                    convertSvgToEps(tempSvgPath, outputPath, (error) => {
-                        if (error) return reject(error);
-                        resolve();
-                    });
-                });
+                await convertSvgToEps(tempSvgPath, outputPath);
             } else if (format === 'ai') {
                 const epsPath = path.join(outputDir, `${variantName}.eps`);
-                console.log('EPS Path:', epsPath);
-    
-                await new Promise((resolve, reject) => {
-                    convertSvgToEps(tempSvgPath, epsPath, (error) => {
-                        if (error) return reject(error);
-                        resolve();
-                    });
-                });
-                await new Promise((resolve, reject) => {
-                    convertEpsToAi(epsPath, outputPath, (error) => {
-                        if (error) return reject(error);
-                        resolve();
-                    });
-                });
+                await convertSvgToEps(tempSvgPath, epsPath);
+                await convertEpsToAi(epsPath, outputPath);
                 fs.unlinkSync(epsPath);
             }
-    
-            console.log('File processed successfully:', outputPath);
-    
+
             const fileBuffer = fs.readFileSync(outputPath);
             res.setHeader('Content-Disposition', `attachment; filename=${variantName}.${format}`);
             res.setHeader('Content-Type', 'application/octet-stream');
             res.send(fileBuffer);
-    
-            console.log('Sent file to client:', outputPath);
-    
+
             fs.unlinkSync(outputPath);
             fs.unlinkSync(tempSvgPath);
         } catch (error) {
@@ -172,57 +295,10 @@ router.post(async (req, res) => {
             fs.unlinkSync(tempSvgPath);
         }
     };
-    
-    // Main handler function
-    router.post(async (req, res) => {
-        const file = req.file;
-        const format = req.body.format;
-        const color = req.body.color;
-        const fileName = req.body.fileName || 'logopack';
-        const svgVariant = JSON.parse(req.body.svgVariant);
-        const size = JSON.parse(req.body.size);
-    
-        console.log('Received Request:');
-        console.log('Format:', format);
-        console.log('Color:', color);
-        console.log('FileName:', fileName);
-        console.log('Size:', size);
-    
-        const primaryCmyk = {
-            rgb: req.body.primaryColor,
-            c: parseFloat(req.body.cmykPrimaryC),
-            m: parseFloat(req.body.cmykPrimaryM),
-            y: parseFloat(req.body.cmykPrimaryY),
-            k: parseFloat(req.body.cmykPrimaryK),
-        };
-        const secondaryCmyk = {
-            rgb: req.body.secondaryColor,
-            c: parseFloat(req.body.cmykSecondaryC),
-            m: parseFloat(req.body.cmykSecondaryM),
-            y: parseFloat(req.body.cmykSecondaryY),
-            k: parseFloat(req.body.cmykSecondaryK),
-        };
-    
-        const svgPath = path.join(process.cwd(), file.path);
-        const outputDir = path.join(process.cwd(), 'output');
-    
-        if (!fs.existsSync(outputDir)) {
-            fs.mkdirSync(outputDir);
-        }
-    
-        const svgContent = addIccColorToSvg(svgVariant, primaryCmyk, secondaryCmyk);
-        const variantName = `${fileName}_${color}`;
-    
-        await processSingleVariant(variantName, svgContent, format, size?.width, size?.height);
-    
-        fs.unlinkSync(svgPath);
-    });
-    
 
-    const svgContent = addIccColorToSvg(svgVariant, primaryCmyk, secondaryCmyk);
-    const variantName = `${fileName}_${color}`;
+    const variantName = `${fileName}_${selectedVariant}`;
 
-    await processSingleVariant(variantName, svgContent, format, size?.width, size?.height);
+    await processSingleVariant(variantName, svgContent, format);
 
     fs.unlinkSync(svgPath);
 });

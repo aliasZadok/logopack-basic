@@ -7,8 +7,11 @@ import path from 'path';
 import fs from 'fs';
 import PDFDocument from 'pdfkit';
 import SVGtoPDF from 'svg-to-pdfkit';
-import { extend } from 'colord';
+import { extend, colord } from 'colord';
 import cmykPlugin from 'colord/plugins/cmyk';
+import xml2js from 'xml2js';
+import { optimize } from 'svgo';
+import { Resvg } from '@resvg/resvg-js';
 
 extend([cmykPlugin]);
 
@@ -18,263 +21,301 @@ const router = createRouter();
 
 router.use(upload.single('file'));
 
-const addIccColorToSvg = (svgContent, primaryCmyk, secondaryCmyk) => {
-  const cmykToString = (cmyk) => `icc-color(#CMYK, ${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
-
-  return svgContent
-    .replace(new RegExp(`fill="${primaryCmyk.rgb}"`, 'g'), `fill="${primaryCmyk.rgb} ${cmykToString(primaryCmyk)}"`)
-    .replace(new RegExp(`fill="${secondaryCmyk.rgb}"`, 'g'), `fill="${secondaryCmyk.rgb} ${cmykToString(secondaryCmyk)}"`);
+const optimizeSvg = (svgContent) => {
+    const optimizedSvg = optimize(svgContent, { multipass: true }).data;
+    return optimizedSvg;
 };
 
-const addSizeAttributesToSvg = (svgContent, width, height) => {
+const addIccColorToSvg = (svgContent, cmykColors) => {
+    const parser = new xml2js.Parser();
+    const builder = new xml2js.Builder();
+    let modifiedSvg;
+
+    parser.parseString(svgContent, (err, result) => {
+        if (err) {
+            console.error('Error parsing SVG content:', err);
+            throw new Error('Error parsing SVG content');
+        }
+
+        const hexToRgb = (hex) => {
+            const { r, g, b } = colord(hex).toRgb();
+            return `rgb(${r}, ${g}, ${b})`;
+        };
+
+        const hexToCmyk = (hex) => {
+            const rgb = colord(hex).toRgb();
+            return colord(rgb).toCmyk();
+        };
+
+        const colorsMatch = (cmyk1, cmyk2, tolerance = 1) => {
+            return (
+                Math.abs(cmyk1.c - cmyk2.c) <= tolerance &&
+                Math.abs(cmyk1.m - cmyk2.m) <= tolerance &&
+                Math.abs(cmyk1.y - cmyk2.y) <= tolerance &&
+                Math.abs(cmyk1.k - cmyk2.k) <= tolerance
+            );
+        };
+
+        const traverseAndUpdateColors = (node, depth = 0) => {
+            if (Array.isArray(node)) {
+                node.forEach((childNode, index) => {
+                    traverseAndUpdateColors(childNode, depth + 1);
+                });
+            } else if (typeof node === 'object' && node !== null) {
+                if (node.$) {
+                    ['fill', 'stroke'].forEach(attr => {
+                        if (node.$[attr]) {
+                            const cmykValue = hexToCmyk(node.$[attr]);
+                            cmykColors.forEach((cmyk) => {
+                                const cmykColor = { c: cmyk.c, m: cmyk.m, y: cmyk.y, k: cmyk.k };
+                                const cmykString = `icc-color(#CMYK, ${cmyk.c}%, ${cmyk.m}%, ${cmyk.y}%, ${cmyk.k}%)`;
+                                if (colorsMatch(cmykValue, cmykColor)) {
+                                    const rgb = hexToRgb(node.$[attr]);
+                                    node.$[attr] = `${rgb} ${cmykString}`;
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        };
+
+        traverseAndUpdateColors(result.svg);
+        modifiedSvg = builder.buildObject(result);
+    });
+
+    return modifiedSvg;
+};
+
+const addSizeAttributesToSvg = (svgContent, newWidth, newHeight) => {
   let modifiedSvg = svgContent;
 
-  if (width) {
-    modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 width="${width}">`);
-  }
-  if (height) {
-    modifiedSvg = modifiedSvg.replace(/<svg([^>]*)>/, `<svg$1 height="${height}">`);
+  // Extract existing viewBox
+  const viewBoxMatch = svgContent.match(/viewBox=["']([^"']*)["']/);
+  const viewBox = viewBoxMatch ? viewBoxMatch[1] : null;
+
+  if (!viewBox) {
+      console.error('SVG does not have a viewBox attribute');
+      return svgContent;
   }
 
+  // Calculate aspect ratio from viewBox
+  const [, , vbWidth, vbHeight] = viewBox.split(' ').map(Number);
+  const aspectRatio = vbWidth / vbHeight;
+
+  // Prepare new SVG tag
+  let newSvgOpenTag = modifiedSvg.match(/<svg[^>]*>/)[0];
+
+  if (newWidth) {
+      const calculatedHeight = Math.round(newWidth / aspectRatio);
+      newSvgOpenTag = newSvgOpenTag.replace(/width=["'][^"']*["']/, '');
+      newSvgOpenTag = newSvgOpenTag.replace(/height=["'][^"']*["']/, '');
+      newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg width="${newWidth}" height="${calculatedHeight}"`);
+  } else if (newHeight) {
+      const calculatedWidth = Math.round(newHeight * aspectRatio);
+      newSvgOpenTag = newSvgOpenTag.replace(/width=["'][^"']*["']/, '');
+      newSvgOpenTag = newSvgOpenTag.replace(/height=["'][^"']*["']/, '');
+      newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg width="${calculatedWidth}" height="${newHeight}"`);
+  }
+
+  // Ensure viewBox is present
+  if (!newSvgOpenTag.includes('viewBox')) {
+      newSvgOpenTag = newSvgOpenTag.replace(/<svg/, `<svg viewBox="${viewBox}"`);
+  }
+
+  modifiedSvg = modifiedSvg.replace(/<svg[^>]*>/, newSvgOpenTag);
+
   return modifiedSvg;
+};
+
+const sanitizeFileName = (fileName) => {
+    return fileName.replace(/\s+/g, '_');
+};
+
+const convertSvgToPdf = async (inputPath, outputPath, isWhiteVariant) => {
+    if (isWhiteVariant) {
+        const svgContent = fs.readFileSync(inputPath, 'utf-8');
+        const pdfDoc = new PDFDocument();
+        const stream = fs.createWriteStream(outputPath);
+
+        pdfDoc.pipe(stream);
+        pdfDoc.rect(0, 0, pdfDoc.page.width, pdfDoc.page.height).fill('black');
+        SVGtoPDF(pdfDoc, svgContent, 0, 0, { assumePt: true });
+        pdfDoc.end();
+
+        return new Promise((resolve, reject) => {
+            stream.on('finish', resolve);
+            stream.on('error', reject);
+        });
+    } else {
+        return new Promise((resolve, reject) => {
+            exec(`inkscape ${inputPath} --export-type=pdf --export-filename=${outputPath}`, (error) => {
+                if (error) {
+                    console.error('Error converting SVG to PDF:', error);
+                    return reject(error);
+                }
+                resolve();
+            });
+        });
+    }
+};
+
+const convertSvgToPng = async (svgContent, outputPath) => {
+  
+  const resvg = new Resvg(svgContent);
+  const pngBuffer = resvg.render().asPng();
+  
+  await sharp(pngBuffer)
+      .png()
+      .toFile(outputPath);
+
+};
+
+const convertSvgToJpg = async (svgContent, outputPath, isWhiteVariant, quality = 100) => {
+  
+  const resvg = new Resvg(svgContent);
+  const pngBuffer = resvg.render().asPng();
+
+  const backgroundColor = isWhiteVariant ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+
+  await sharp(pngBuffer)
+      .flatten({ background: backgroundColor })
+      .jpeg({ quality })
+      .toFile(outputPath);
+
+};
+
+const convertSvgToWebp = async (svgContent, outputPath, quality = 100) => {
+  
+  const resvg = new Resvg(svgContent);
+  const pngBuffer = resvg.render().asPng();
+  
+  await sharp(pngBuffer)
+      .webp({ quality })
+      .toFile(outputPath);
+
 };
 
 router.post(async (req, res) => {
   const file = req.file;
   const rawFormats = req.body.formats.split(',');
   const colors = req.body.colors.split(',');
-  const fileName = req.body.fileName || 'logopack';
+  const fileName = sanitizeFileName(req.body.fileName || 'logopack');
   const svgVariants = JSON.parse(req.body.svgVariants);
   const sizes = svgVariants.sizes || [];
   const selectedVariants = JSON.parse(req.body.selectedVariants);
-
-  const primaryCmyk = {
-    rgb: req.body.primaryColor,
-    c: parseFloat(req.body.cmykPrimaryC),
-    m: parseFloat(req.body.cmykPrimaryM),
-    y: parseFloat(req.body.cmykPrimaryY),
-    k: parseFloat(req.body.cmykPrimaryK),
-  };
-  const secondaryCmyk = {
-    rgb: req.body.secondaryColor,
-    c: parseFloat(req.body.cmykSecondaryC),
-    m: parseFloat(req.body.cmykSecondaryM),
-    y: parseFloat(req.body.cmykSecondaryY),
-    k: parseFloat(req.body.cmykSecondaryK),
-  };
+  const cmykColors = JSON.parse(req.body.cmykColors || '[]');
 
   const zip = new JSZip();
   const svgPath = path.join(process.cwd(), file.path);
   const outputDir = path.join(process.cwd(), 'output');
 
   if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir);
+      fs.mkdirSync(outputDir);
   }
 
-  const colorSystems = rawFormats.filter(f => f === 'rgb' || f === 'cmyk');
   const formats = rawFormats.filter(f => f !== 'rgb' && f !== 'cmyk');
 
-  const convertSvgToPng = async (inputPath, outputPath) => {
-    await sharp(inputPath)
-      .png()
-      .toFile(outputPath);
-  };
+  const processVariants = async (variantName, svgContent, width, height) => {
+      const optimizedSvgContent = optimizeSvg(svgContent);
+      const modifiedSvgContent = addSizeAttributesToSvg(optimizedSvgContent, width, height);
+      const tempSvgPath = path.join(outputDir, `${variantName}.svg`);
+      fs.writeFileSync(tempSvgPath, modifiedSvgContent);
 
-  const convertSvgToJpg = async (inputPath, outputPath, variantName) => {
-    const isWhiteVariant = variantName.includes('White');
-    const pipeline = sharp(inputPath)
-      .flatten({ background: isWhiteVariant ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } })
-      .jpeg();
-    await pipeline.toFile(outputPath);
-  };
+      for (const format of formats) {
+          const outputPath = path.join(outputDir, `${variantName}.${format}`);
 
-  const convertSvgToWebp = async (inputPath, outputPath) => {
-    await sharp(inputPath)
-      .webp()
-      .toFile(outputPath);
-  };
+          try {
+              if (format === 'png') {
+                  await convertSvgToPng(modifiedSvgContent, outputPath);
+              } else if (format === 'jpg') {
+                  await convertSvgToJpg(modifiedSvgContent, outputPath, variantName.includes('White'));
+              } else if (format === 'webp') {
+                  await convertSvgToWebp(modifiedSvgContent, outputPath);
+              } else if (format === 'pdf') {
+                  await convertSvgToPdf(tempSvgPath, outputPath, variantName.includes('White'));
+              } else if (format === 'eps') {
+                  await convertSvgToEps(tempSvgPath, outputPath);
+              } else if (format === 'ai') {
+                  const epsPath = path.join(outputDir, `${variantName}.eps`);
+                  await convertSvgToEps(tempSvgPath, epsPath);
+                  await convertEpsToAi(epsPath, outputPath);
+                  fs.unlinkSync(epsPath);
+              }
 
-  const convertSvgToPdf = async (inputPath, outputPath) => {
-    const svgContent = fs.readFileSync(inputPath, 'utf-8');
-    const pdfDoc = new PDFDocument();
-    const stream = fs.createWriteStream(outputPath);
+              const fileBuffer = fs.readFileSync(outputPath);
+              zip.file(`${variantName}.${format}`, fileBuffer);
 
-    pdfDoc.pipe(stream);
-    SVGtoPDF(pdfDoc, svgContent, 0, 0);
-    pdfDoc.end();
-
-    return new Promise((resolve, reject) => {
-      stream.on('finish', resolve);
-      stream.on('error', reject);
-    });
-  };
-
-  const convertSvgToEps = (inputPath, outputPath, callback) => {
-    exec(`inkscape ${inputPath} --export-eps=${outputPath}`, callback);
-  };
-
-  const convertEpsToAi = (inputPath, outputPath, callback) => {
-    exec(`pstoedit -f ps2ai ${inputPath} ${outputPath}`, callback);
-  };
-
-  const processVariants = async (variantName, svgContent, colorDir, width, height) => {
-    const modifiedSvgContent = addSizeAttributesToSvg(svgContent, width, height);
-    const tempSvgPath = path.join(outputDir, `${variantName}.svg`);
-    fs.writeFileSync(tempSvgPath, modifiedSvgContent);
-
-    for (const format of formats) {
-      const outputPath = path.join(outputDir, `${variantName}.${format}`);
-
-      try {
-        if (format === 'png') {
-          await convertSvgToPng(tempSvgPath, outputPath);
-        } else if (format === 'jpg') {
-          await convertSvgToJpg(tempSvgPath, outputPath, variantName);
-        } else if (format === 'webp') {
-          await convertSvgToWebp(tempSvgPath, outputPath);
-        } else if (format === 'pdf') {
-          await convertSvgToPdf(tempSvgPath, outputPath);
-        } else if (format === 'eps') {
-          await new Promise((resolve, reject) => {
-            convertSvgToEps(tempSvgPath, outputPath, (error) => {
-              if (error) return reject(error);
-              resolve();
-            });
-          });
-        } else if (format === 'ai') {
-          const epsPath = path.join(outputDir, `${variantName}.eps`);
-          await new Promise((resolve, reject) => {
-            convertSvgToEps(tempSvgPath, epsPath, (error) => {
-              if (error) return reject(error);
-              resolve();
-            });
-          });
-          await new Promise((resolve, reject) => {
-            convertEpsToAi(epsPath, outputPath, (error) => {
-              if (error) return reject(error);
-              resolve();
-            });
-          });
-          fs.unlinkSync(epsPath);
-        }
-
-        const fileBuffer = fs.readFileSync(outputPath);
-        colorDir.file(`${variantName}.${format}`, fileBuffer);
-
-        console.log(`Processed variant: ${variantName}, format: ${format}`);
-        fs.unlinkSync(outputPath);
-      } catch (error) {
-        console.error(`Error converting ${variantName} to ${format}:`, error);
+              fs.unlinkSync(outputPath);
+          } catch (error) {
+              console.error(`Error converting ${variantName} to ${format}:`, error);
+          }
       }
-    }
 
-    fs.unlinkSync(tempSvgPath);
+      fs.unlinkSync(tempSvgPath);
   };
 
-  const fullColorSvg = addIccColorToSvg(svgVariants.fullColor, primaryCmyk, secondaryCmyk);
-  const whiteSvg = addIccColorToSvg(svgVariants.white, primaryCmyk, secondaryCmyk);
-  const blackSvg = addIccColorToSvg(svgVariants.black, primaryCmyk, secondaryCmyk);
+  const fullColorSvg = optimizeSvg(addIccColorToSvg(svgVariants.fullColor, cmykColors));
+  const whiteSvg = optimizeSvg(addIccColorToSvg(svgVariants.white, cmykColors));
+  const blackSvg = optimizeSvg(addIccColorToSvg(svgVariants.black, cmykColors));
 
-  const mainFolder = zip.folder(fileName);
-  const digitalFolder = mainFolder.folder('01_Digital');
-  const printFolder = colors.includes('cmyk') ? mainFolder.folder('02_Print') : null;
+  const processColorSystem = async (colorSystem) => {
+      const prefix = colorSystem === 'cmyk' ? 'CMYK' : 'RGB';
 
-  console.log('Processing RGB variants...');
-  if (selectedVariants.includes('fullColor')) {
-    await processVariants(`${fileName}_RGB_Full_Color`, fullColorSvg, digitalFolder.folder('01_Full_Color'));
-  }
-  if (selectedVariants.includes('white')) {
-    await processVariants(`${fileName}_RGB_White`, whiteSvg, digitalFolder.folder('02_White'));
-  }
-  if (selectedVariants.includes('black')) {
-    await processVariants(`${fileName}_RGB_Black`, blackSvg, digitalFolder.folder('03_Black'));
-  }
-
-  if (sizes.length > 0) {
-    for (const size of sizes) {
-      if (size.type === 'Width') {
-        if (selectedVariants.includes('fullColor')) {
-          await processVariants(`${fileName}_RGB_${size.value}W_Full_Color`, fullColorSvg, digitalFolder.folder('01_Full_Color'), size.value, null);
-        }
-        if (selectedVariants.includes('white')) {
-          await processVariants(`${fileName}_RGB_${size.value}W_White`, whiteSvg, digitalFolder.folder('02_White'), size.value, null);
-        }
-        if (selectedVariants.includes('black')) {
-          await processVariants(`${fileName}_RGB_${size.value}W_Black`, blackSvg, digitalFolder.folder('03_Black'), size.value, null);
-        }
-      } else if (size.type === 'Height') {
-        if (selectedVariants.includes('fullColor')) {
-          await processVariants(`${fileName}_RGB_${size.value}H_Full_Color`, fullColorSvg, digitalFolder.folder('01_Full_Color'), null, size.value);
-        }
-        if (selectedVariants.includes('white')) {
-          await processVariants(`${fileName}_RGB_${size.value}H_White`, whiteSvg, digitalFolder.folder('02_White'), null, size.value);
-        }
-        if (selectedVariants.includes('black')) {
-          await processVariants(`${fileName}_RGB_${size.value}H_Black`, blackSvg, digitalFolder.folder('03_Black'), null, size.value);
-        }
-      } else if (size.type === 'Dimensions') {
-        const { width, height } = size.value;
-        if (selectedVariants.includes('fullColor')) {
-          await processVariants(`${fileName}_RGB_${width}x${height}_Full_Color`, fullColorSvg, digitalFolder.folder('01_Full_Color'), width, height);
-        }
-        if (selectedVariants.includes('white')) {
-          await processVariants(`${fileName}_RGB_${width}x${height}_White`, whiteSvg, digitalFolder.folder('02_White'), width, height);
-        }
-        if (selectedVariants.includes('black')) {
-          await processVariants(`${fileName}_RGB_${width}x${height}_Black`, blackSvg, digitalFolder.folder('03_Black'), width, height);
-        }
+      if (selectedVariants.includes('fullColor')) {
+          await processVariants(`${fileName}_${prefix}_Full_Color`, fullColorSvg);
       }
-    }
+      if (selectedVariants.includes('white')) {
+          await processVariants(`${fileName}_${prefix}_White`, whiteSvg);
+      }
+      if (selectedVariants.includes('black')) {
+          await processVariants(`${fileName}_${prefix}_Black`, blackSvg);
+      }
+
+      if (sizes.length > 0) {
+          for (const size of sizes) {
+              if (size.type === 'Width') {
+                  if (selectedVariants.includes('fullColor')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}W_Full_Color`, fullColorSvg, size.value, null);
+                  }
+                  if (selectedVariants.includes('white')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}W_White`, whiteSvg, size.value, null);
+                  }
+                  if (selectedVariants.includes('black')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}W_Black`, blackSvg, size.value, null);
+                  }
+              } else if (size.type === 'Height') {
+                  if (selectedVariants.includes('fullColor')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}H_Full_Color`, fullColorSvg, null, size.value);
+                  }
+                  if (selectedVariants.includes('white')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}H_White`, whiteSvg, null, size.value);
+                  }
+                  if (selectedVariants.includes('black')) {
+                      await processVariants(`${fileName}_${prefix}_${size.value}H_Black`, blackSvg, null, size.value);
+                  }
+              } else if (size.type === 'Dimensions') {
+                  const { width, height } = size.value;
+                  if (selectedVariants.includes('fullColor')) {
+                      await processVariants(`${fileName}_${prefix}_${width}x${height}_Full_Color`, fullColorSvg, width, height);
+                  }
+                  if (selectedVariants.includes('white')) {
+                      await processVariants(`${fileName}_${prefix}_${width}x${height}_White`, whiteSvg, width, height);
+                  }
+                  if (selectedVariants.includes('black')) {
+                      await processVariants(`${fileName}_${prefix}_${width}x${height}_Black`, blackSvg, width, height);
+                  }
+              }
+          }
+      }
+  };
+
+  if (colors.includes('rgb')) {
+      await processColorSystem('rgb');
   }
 
-  if (printFolder) {
-    console.log('Processing CMYK variants...');
-    if (selectedVariants.includes('fullColor')) {
-      await processVariants(`${fileName}_CMYK_Full_Color`, fullColorSvg, printFolder.folder('01_Full_Color'));
-    }
-    if (selectedVariants.includes('white')) {
-      await processVariants(`${fileName}_CMYK_White`, whiteSvg, printFolder.folder('02_White'));
-    }
-    if (selectedVariants.includes('black')) {
-      await processVariants(`${fileName}_CMYK_Black`, blackSvg, printFolder.folder('03_Black'));
-    }
-
-    if (sizes.length > 0) {
-      for (const size of sizes) {
-        if (size.type === 'Width') {
-          if (selectedVariants.includes('fullColor')) {
-            await processVariants(`${fileName}_CMYK_${size.value}W_Full_Color`, fullColorSvg, printFolder.folder('01_Full_Color'), size.value, null);
-          }
-          if (selectedVariants.includes('white')) {
-            await processVariants(`${fileName}_CMYK_${size.value}W_White`, whiteSvg, printFolder.folder('02_White'), size.value, null);
-          }
-          if (selectedVariants.includes('black')) {
-            await processVariants(`${fileName}_CMYK_${size.value}W_Black`, blackSvg, printFolder.folder('03_Black'), size.value, null);
-          }
-        } else if (size.type === 'Height') {
-          if (selectedVariants.includes('fullColor')) {
-            await processVariants(`${fileName}_CMYK_${size.value}H_Full_Color`, fullColorSvg, printFolder.folder('01_Full_Color'), null, size.value);
-          }
-          if (selectedVariants.includes('white')) {
-            await processVariants(`${fileName}_CMYK_${size.value}H_White`, whiteSvg, printFolder.folder('02_White'), null, size.value);
-          }
-          if (selectedVariants.includes('black')) {
-            await processVariants(`${fileName}_CMYK_${size.value}H_Black`, blackSvg, printFolder.folder('03_Black'), null, size.value);
-          }
-        } else if (size.type === 'Dimensions') {
-          const { width, height } = size.value;
-          if (selectedVariants.includes('fullColor')) {
-            await processVariants(`${fileName}_CMYK_${width}x${height}_Full_Color`, fullColorSvg, printFolder.folder('01_Full_Color'), width, height);
-          }
-          if (selectedVariants.includes('white')) {
-            await processVariants(`${fileName}_CMYK_${width}x${height}_White`, whiteSvg, printFolder.folder('02_White'), width, height);
-          }
-          if (selectedVariants.includes('black')) {
-            await processVariants(`${fileName}_CMYK_${width}x${height}_Black`, blackSvg, printFolder.folder('03_Black'), width, height);
-          }
-        }
-      }
-    }
+  if (colors.includes('cmyk')) {
+      await processColorSystem('cmyk');
   }
 
   fs.unlinkSync(svgPath);
@@ -287,7 +328,7 @@ router.post(async (req, res) => {
 
 export const config = {
   api: {
-    bodyParser: false,
+      bodyParser: false,
   },
 };
 
